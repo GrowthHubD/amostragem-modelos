@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secretaria Visual — Central de Agentes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<div class="glow glow-1"></div>
+<div class="glow glow-2"></div>
+
+<!-- Overlay sidebar mobile -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="brand">
+      <div class="brand-symbol">
+        <img src="/assets/simbolo.svg" alt="GH" />
+      </div>
+      <div class="brand-wordmark">
+        <img src="/assets/tipografico.svg" alt="Secretaria Visual" />
+        <span class="brand-sub">Central de Agentes IA</span>
+      </div>
+    </div>
+    <div class="orch-pill active" id="orch-pill">
+      <div class="orch-dot pulse" id="orch-dot"></div>
+      <span class="orch-label">Orquestrador</span>
+      <span class="orch-badge">HUB</span>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <span class="section-label">Agentes</span>
+  </div>
+
+  <div class="agents-list" id="agents-list">
+    <!-- Injetado pelo app.js -->
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="footer-dot"></div>
+    <span class="footer-text">n8n conectado · <span id="agent-count">—</span> agentes</span>
+  </div>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+  <div class="topbar">
+    <button class="hamburger" id="hamburger-btn" aria-label="Menu">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="3" y1="6"  x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+
+    <div class="topbar-bc">
+      <span class="bc-item" id="bc-home">Central</span>
+      <span class="bc-sep" id="bc-sep" style="display:none">›</span>
+      <span class="bc-item current" id="bc-agent" style="display:none"></span>
+    </div>
+
+    <div class="topbar-right">
+      <div class="active-chip" id="active-chip">
+        <div class="orch-dot green pulse" style="width:6px;height:6px;"></div>
+        <span id="chip-name"></span>
+      </div>
+      <button class="end-btn" id="end-btn">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        <span>Encerrar</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- VIEW: Orquestrador -->
+  <div class="view active" id="view-orchestrator">
+    <div class="orch-scroll">
+      <div class="welcome-wrap">
+        <div class="eyebrow">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+          Orquestrador ativo
+        </div>
+        <h1 class="welcome-title">Qual agente você<br/>quer <span>ativar hoje?</span></h1>
+        <p class="welcome-desc">
+          Sou o orquestrador da Secretaria Visual. Gerencio todos os agentes IA disponíveis.
+          Escolha um agente abaixo — cada um está conectado a um fluxo especializado no n8n.
+        </p>
+      </div>
+
+      <div class="flow-preview">
+        <div class="flow-label">Como funciona</div>
+        <div class="bubble-row">
+          <div class="bav ai-av">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="bubble ai-b">Qual agente você quer usar? Temos Petshop, Delivery, Imobiliária e Concessionária disponíveis.</div>
+        </div>
+        <div class="bubble-row user-r">
+          <div class="bav usr-av">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <div class="bubble usr-b">PETSHOP</div>
+        </div>
+        <div class="bubble-row">
+          <div class="bav ai-av">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="bubble ai-b">Petshop ativado! Pode mandar uma mensagem que o agente já está pronto.</div>
+        </div>
+      </div>
+
+      <div class="grid-wrap">
+        <div class="grid-label">Selecione um agente para começar</div>
+        <div class="grid" id="agents-grid">
+          <!-- Injetado pelo app.js -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW: Chat -->
+  <div class="view" id="view-chat">
+    <div class="chat-view">
+      <div class="chat-banner">
+        <div class="cb-icon" id="cb-icon"></div>
+        <div class="cb-info">
+          <div class="cb-name">
+            <span id="cb-name-text"></span>
+            <span class="cb-running">
+              <div class="orch-dot green pulse" style="width:4px;height:4px;"></div>
+              Rodando
+            </span>
+          </div>
+          <div class="cb-desc" id="cb-desc-text"></div>
+        </div>
+      </div>
+
+      <div class="messages-area" id="messages-area"></div>
+
+      <div class="input-area">
+        <div class="input-wrap">
+          <textarea id="chat-input" rows="1" placeholder="Mande uma mensagem para o agente..."></textarea>
+          <button class="send-btn" id="send-btn" aria-label="Enviar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="input-hint">Enter para enviar · Shift+Enter para nova linha · Recarregar a página reinicia a conversa</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

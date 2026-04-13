@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secretaria Visual — Central de Agentes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── Brand Tokens ─── */
+    :root {
+      --purple:        #694de2;
+      --purple-light:  #8b72f0;
+      --purple-glow:   rgba(105, 77, 226, 0.35);
+      --purple-subtle: rgba(105, 77, 226, 0.12);
+      --bg-base:       #161616;
+      --bg-raised:     #1c1c1c;
+      --bg-overlay:    #222222;
+      --bg-card:       rgba(255,255,255,0.03);
+      --border:        rgba(255,255,255,0.07);
+      --border-purple: rgba(105, 77, 226, 0.4);
+      --text-primary:  #ededed;
+      --text-muted:    #7a7a7a;
+      --text-dim:      #444444;
+      --success:       #22c55e;
+      --radius-sm:     8px;
+      --radius-md:     12px;
+      --radius-lg:     16px;
+      --sidebar-w:     290px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      display: flex;
+      height: 100vh;
+    }
+
+    /* ════════════════════════════════════════
+       SIDEBAR
+    ════════════════════════════════════════ */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      height: 100vh;
+      background: var(--bg-raised);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 300ms cubic-bezier(0.4,0,0.2,1);
+      z-index: 200;
+    }
+
+    .sidebar-header {
+      padding: 20px 18px 18px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 18px;
+    }
+
+    .brand-symbol { width: 38px; height: 38px; flex-shrink: 0; display: flex; align-items: center; }
+    .brand-symbol img { width: 38px; height: 38px; object-fit: contain; }
+
+    .brand-wordmark { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .brand-wordmark img { height: 20px; width: auto; max-width: 160px; object-fit: contain; object-position: left center; }
+    .brand-sub { font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
+
+    /* Orquestrador pill */
+    .orch-pill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--purple-subtle);
+      border: 1px solid var(--border-purple);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background 200ms, border-color 200ms;
+    }
+    .orch-pill:hover  { background: rgba(105,77,226,0.18); border-color: var(--purple); }
+    .orch-pill.active { background: rgba(105,77,226,0.2); border-color: var(--purple); box-shadow: 0 0 0 1px var(--purple-glow); }
+
+    .orch-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--purple-light); flex-shrink: 0; position: relative;
+    }
+    .orch-dot.pulse::after {
+      content: ''; position: absolute; inset: -3px; border-radius: 50%;
+      background: var(--purple-light); opacity: 0.4;
+      animation: pulse 1.8s ease-out infinite;
+    }
+    .orch-dot.green { background: var(--success); }
+    .orch-dot.green.pulse::after { background: var(--success); }
+
+    @keyframes pulse {
+      0%   { transform: scale(1);   opacity: 0.4; }
+      70%  { transform: scale(2.2); opacity: 0; }
+      100% { transform: scale(1);   opacity: 0; }
+    }
+
+    .orch-label { font-size: 12px; font-weight: 500; color: var(--purple-light); flex: 1; }
+    .orch-badge { font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--purple-light); opacity: 0.65; }
+
+    /* Agents list */
+    .sidebar-section { padding: 14px 18px 6px; flex-shrink: 0; }
+    .section-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-dim); }
+
+    .agents-list {
+      flex: 1; overflow-y: auto;
+      padding: 6px 10px 12px;
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .agents-list::-webkit-scrollbar { width: 3px; }
+    .agents-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .agent-card {
+      padding: 12px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      cursor: pointer; transition: background 180ms, border-color 180ms;
+      position: relative; overflow: hidden;
+    }
+    .agent-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, var(--purple-subtle), transparent);
+      opacity: 0; transition: opacity 180ms;
+    }
+    .agent-card:hover { border-color: rgba(105,77,226,0.28); }
+    .agent-card:hover::before { opacity: 1; }
+    .agent-card:active { opacity: 0.8; }
+    .agent-card.active { border-color: var(--purple); background: var(--purple-subtle); box-shadow: 0 0 0 1px var(--purple-glow); }
+    .agent-card.active::before { opacity: 1; }
+
+    .ac-top { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; position: relative; z-index: 1; }
+    .ac-icon {
+      width: 30px; height: 30px; border-radius: 7px;
+      background: var(--bg-overlay); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: var(--text-muted);
+      transition: background 180ms, border-color 180ms, color 180ms;
+    }
+    .agent-card.active .ac-icon, .agent-card:hover .ac-icon {
+      background: var(--purple-subtle); border-color: var(--border-purple); color: var(--purple-light);
+    }
+    .ac-info { flex: 1; min-width: 0; }
+    .ac-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-tag  { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+    .ac-badge {
+      font-size: 9.5px; font-weight: 500;
+      padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
+    }
+    .ac-badge.available { background: rgba(34,197,94,0.1); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
+    .ac-badge.running   { background: var(--purple-subtle); color: var(--purple-light); border: 1px solid var(--border-purple); }
+    .ac-desc { font-size: 11px; color: var(--text-muted); line-height: 1.5; position: relative; z-index: 1; }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      padding: 14px 18px; border-top: 1px solid var(--border);
+      flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+    }
+    .footer-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+    .footer-text { font-size: 11px; color: var(--text-muted); }
+
+    /* ════════════════════════════════════════
+       OVERLAY (mobile)
+    ════════════════════════════════════════ */
+    .sidebar-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 150;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(2px);
+      opacity: 0;
+      transition: opacity 300ms;
+    }
+    .sidebar-overlay.open { opacity: 1; }
+
+    /* ════════════════════════════════════════
+       MAIN
+    ════════════════════════════════════════ */
+    .main {
+      flex: 1; display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden; min-width: 0;
+    }
+
+    /* Top bar */
+    .topbar {
+      height: 56px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 20px; gap: 10px;
+      flex-shrink: 0; background: var(--bg-base);
+    }
+
+    /* Hamburger — só aparece em mobile */
+    .hamburger {
+      display: none;
+      width: 36px; height: 36px;
+      align-items: center; justify-content: center;
+      background: none; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text-muted);
+      cursor: pointer; flex-shrink: 0;
+      transition: background 180ms, border-color 180ms, color 180ms;
+    }
+    .hamburger:hover { background: var(--bg-raised); border-color: rgba(255,255,255,0.12); color: var(--text-primary); }
+
+    .topbar-bc { display: flex; align-items: center; gap: 7px; font-size: 13px; min-width: 0; }
+    .bc-item { color: var(--text-muted); cursor: pointer; transition: color 150ms; white-space: nowrap; }
+    .bc-item:hover { color: var(--text-primary); }
+    .bc-item.current { color: var(--text-primary); font-weight: 500; cursor: default; overflow: hidden; text-overflow: ellipsis; }
+    .bc-sep { color: var(--text-dim); flex-shrink: 0; }
+
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+    .active-chip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      background: var(--purple-subtle); border: 1px solid var(--border-purple);
+      border-radius: 20px; font-size: 11.5px; font-weight: 500; color: var(--purple-light);
+      opacity: 0; transform: translateY(-3px);
+      transition: opacity 250ms, transform 250ms;
+      pointer-events: none; white-space: nowrap;
+    }
+    .active-chip.show { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+    .end-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 12px;
+      background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text-muted);
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      font-family: 'Inter', sans-serif; white-space: nowrap;
+      opacity: 0; pointer-events: none;
+      transition: opacity 250ms, background 200ms, border-color 200ms, color 200ms;
+    }
+    .end-btn.show { opacity: 1; pointer-events: all; }
+    .end-btn:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); color: #f87171; }
+
+    /* Views */
+    .view { flex: 1; overflow: hidden; display: none; flex-direction: column; }
+    .view.active { display: flex; }
+
+    /* ════════════════════════════════════════
+       VIEW: ORQUESTRADOR
+    ════════════════════════════════════════ */
+    .orch-scroll {
+      flex: 1; overflow-y: auto;
+      padding: 32px 32px 40px;
+    }
+    .orch-scroll::-webkit-scrollbar { width: 4px; }
+    .orch-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .welcome-wrap { max-width: 600px; margin: 0 auto 40px; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--purple-light); padding: 4px 11px;
+      background: var(--purple-subtle); border: 1px solid var(--border-purple);
+      border-radius: 20px; margin-bottom: 18px;
+    }
+
+    .welcome-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.22;
+      color: var(--text-primary); margin-bottom: 12px;
+    }
+    .welcome-title span {
+      background: linear-gradient(135deg, var(--purple-light), #c084fc);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .welcome-desc { font-size: 14px; color: var(--text-muted); line-height: 1.7; }
+
+    /* Flow preview */
+    .flow-preview { max-width: 600px; margin: 0 auto 40px; }
+    .flow-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+
+    .bubble-row { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 9px; }
+    .bubble-row.user-r { flex-direction: row-reverse; }
+
+    .bav {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .bav.ai-av  { background: var(--purple-subtle); border: 1px solid var(--border-purple); color: var(--purple-light); }
+    .bav.usr-av { background: var(--bg-overlay); border: 1px solid var(--border); color: var(--text-muted); }
+
+    .bubble { max-width: 78%; padding: 10px 14px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.6; }
+    .bubble.ai-b  { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); border-top-left-radius: 3px; }
+    .bubble.usr-b { background: var(--purple-subtle); border: 1px solid var(--border-purple); color: var(--text-primary); border-top-right-radius: 3px; }
+
+    /* Grid de agentes */
+    .grid-wrap { max-width: 600px; margin: 0 auto; }
+    .grid-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .grid-card {
+      padding: 18px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      cursor: pointer;
+      transition: background 180ms, border-color 180ms, transform 150ms, box-shadow 180ms;
+      position: relative; overflow: hidden;
+    }
+    .grid-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, var(--purple-subtle), transparent 60%);
+      opacity: 0; transition: opacity 180ms;
+    }
+    .grid-card:hover { border-color: rgba(105,77,226,0.3); box-shadow: 0 4px 20px rgba(105,77,226,0.08); transform: translateY(-1px); }
+    .grid-card:hover::before { opacity: 1; }
+    .grid-card:active { transform: scale(0.985); }
+
+    .gc-icon {
+      width: 40px; height: 40px; border-radius: var(--radius-sm);
+      background: var(--bg-overlay); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); margin-bottom: 12px;
+      transition: background 180ms, border-color 180ms, color 180ms;
+      position: relative; z-index: 1;
+    }
+    .grid-card:hover .gc-icon { background: var(--purple-subtle); border-color: var(--border-purple); color: var(--purple-light); }
+
+    .gc-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; position: relative; z-index: 1; }
+    .gc-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; position: relative; z-index: 1; }
+
+    .gc-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; position: relative; z-index: 1; }
+    .gc-avail { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: #4ade80; }
+    .gc-arrow {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--bg-overlay); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted);
+      transition: background 180ms, border-color 180ms, color 180ms;
+    }
+    .grid-card:hover .gc-arrow { background: var(--purple); border-color: var(--purple); color: white; }
+
+    /* ════════════════════════════════════════
+       VIEW: CHAT
+    ════════════════════════════════════════ */
+    .chat-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .chat-banner {
+      padding: 12px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+      background: var(--bg-raised); flex-shrink: 0;
+    }
+    .cb-icon {
+      width: 36px; height: 36px; border-radius: var(--radius-sm);
+      background: var(--purple-subtle); border: 1px solid var(--border-purple);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--purple-light); flex-shrink: 0;
+    }
+    .cb-info { flex: 1; min-width: 0; }
+    .cb-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .cb-running {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 9.5px; font-weight: 600; color: #4ade80;
+      padding: 2px 8px; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.18);
+      border-radius: 20px;
+    }
+    .cb-desc { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .messages-area {
+      flex: 1; overflow-y: auto;
+      padding: 20px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .messages-area::-webkit-scrollbar { width: 4px; }
+    .messages-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .msg-row { display: flex; align-items: flex-start; gap: 9px; animation: msgIn 200ms ease-out; }
+    .msg-row.user-row { flex-direction: row-reverse; }
+    @keyframes msgIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+
+    .msg-av {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .msg-av.ai { background: var(--purple-subtle); border: 1px solid var(--border-purple); color: var(--purple-light); }
+    .msg-av.hu { background: var(--bg-overlay); border: 1px solid var(--border); color: var(--text-muted); }
+
+    .msg-body { max-width: 72%; display: flex; flex-direction: column; gap: 3px; }
+    .user-row .msg-body { align-items: flex-end; }
+
+    .msg-sender { font-size: 10px; font-weight: 500; color: var(--text-muted); padding: 0 3px; }
+    .msg-bubble { padding: 11px 15px; border-radius: var(--radius-md); font-size: 13.5px; line-height: 1.65; }
+    .msg-bubble.ai-msg  { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); border-top-left-radius: 3px; }
+    .msg-bubble.usr-msg { background: var(--purple-subtle); border: 1px solid var(--border-purple); color: var(--text-primary); border-top-right-radius: 3px; }
+    .msg-time { font-size: 9.5px; color: var(--text-dim); padding: 0 3px; }
+
+    /* Typing */
+    .typing-bub {
+      padding: 12px 16px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-md); border-top-left-radius: 3px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .td { width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim); }
+    .td:nth-child(1) { animation: bounce 1.2s ease-in-out 0.0s infinite; }
+    .td:nth-child(2) { animation: bounce 1.2s ease-in-out 0.2s infinite; }
+    .td:nth-child(3) { animation: bounce 1.2s ease-in-out 0.4s infinite; }
+    @keyframes bounce { 0%,60%,100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-5px); opacity: 1; } }
+
+    /* Input */
+    .input-area {
+      padding: 12px 20px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-base); flex-shrink: 0;
+    }
+    .input-wrap {
+      display: flex; align-items: flex-end; gap: 9px;
+      padding: 10px 12px;
+      background: var(--bg-raised); border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      transition: border-color 200ms, box-shadow 200ms;
+    }
+    .input-wrap:focus-within { border-color: var(--border-purple); box-shadow: 0 0 0 3px var(--purple-glow); }
+
+    #chat-input {
+      flex: 1; background: none; border: none; outline: none;
+      color: var(--text-primary); font-family: 'Inter', sans-serif;
+      font-size: 14px; line-height: 1.5;
+      resize: none; max-height: 120px; min-height: 22px;
+    }
+    #chat-input::placeholder { color: var(--text-dim); }
+
+    .send-btn {
+      width: 34px; height: 34px; border-radius: var(--radius-sm);
+      background: var(--purple); border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0; color: white;
+      transition: background 180ms, transform 150ms;
+    }
+    .send-btn:hover { background: var(--purple-light); }
+    .send-btn:active { transform: scale(0.9); }
+    .send-btn:disabled { background: var(--bg-overlay); color: var(--text-dim); cursor: default; }
+
+    .input-hint { font-size: 10.5px; color: var(--text-dim); margin-top: 6px; text-align: center; }
+
+    /* Animations */
+    .fade-in { animation: fadeIn 220ms ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* BG glows */
+    .glow { position: fixed; pointer-events: none; z-index: 0; border-radius: 50%; }
+    .glow-1 { top: -180px; right: -80px; width: 550px; height: 550px; background: radial-gradient(circle, rgba(105,77,226,0.055) 0%, transparent 70%); }
+    .glow-2 { bottom: -120px; left: 260px; width: 440px; height: 440px; background: radial-gradient(circle, rgba(105,77,226,0.035) 0%, transparent 70%); }
+
+    /* ════════════════════════════════════════
+       RESPONSIVO — TABLET (≤ 900px)
+    ════════════════════════════════════════ */
+    @media (max-width: 900px) {
+      :root { --sidebar-w: 270px; }
+
+      .sidebar {
+        position: fixed; top: 0; left: 0; height: 100vh;
+        transform: translateX(-100%);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+      }
+      .sidebar.open { transform: translateX(0); }
+
+      .sidebar-overlay { display: block; }
+
+      .hamburger { display: flex; }
+
+      .main { width: 100%; }
+
+      /* Grid 2 colunas ainda funciona bem em tablet */
+      .orch-scroll { padding: 24px 20px 32px; }
+      .welcome-title { font-size: 24px; }
+      .welcome-desc { font-size: 13.5px; }
+
+      /* Chip e botão encerrar — ocultar texto em tela menor */
+      .end-btn span { display: none; }
+      .end-btn { padding: 6px 9px; }
+    }
+
+    /* ════════════════════════════════════════
+       RESPONSIVO — MOBILE (≤ 600px)
+    ════════════════════════════════════════ */
+    @media (max-width: 600px) {
+      /* Grid de agentes: 1 coluna */
+      .grid { grid-template-columns: 1fr; }
+
+      .orch-scroll { padding: 20px 16px 28px; }
+
+      .welcome-title { font-size: 22px; }
+      .welcome-desc  { font-size: 13px; }
+
+      /* Topbar mais compacta */
+      .topbar { padding: 0 14px; gap: 8px; }
+
+      /* Chat: padding menor */
+      .messages-area { padding: 14px 14px; }
+      .input-area { padding: 10px 14px 14px; }
+
+      /* Mensagens: largura maior */
+      .msg-body { max-width: 85%; }
+
+      /* Bubble da preview: ocupa mais espaço */
+      .bubble { max-width: 90%; font-size: 12.5px; }
+
+      /* Banner do agente */
+      .chat-banner { padding: 10px 14px; }
+      .cb-desc { display: none; }
+
+      /* Hint "Enter para enviar" some no mobile */
+      .input-hint { display: none; }
+
+      /* Chip ativo: só o dot no mobile */
+      .active-chip span { display: none; }
+      .active-chip { padding: 5px 8px; }
+
+      /* Glow menor */
+      .glow-1 { width: 300px; height: 300px; }
+      .glow-2 { width: 250px; height: 250px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="glow glow-1"></div>
+<div class="glow glow-2"></div>
+
+<!-- Overlay sidebar (mobile/tablet) -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar" id="sidebar">
+
+  <div class="sidebar-header">
+    <div class="brand">
+      <div class="brand-symbol">
+        <img src="Símbolo v.1 Transparente.svg" alt="GH" />
+      </div>
+      <div class="brand-wordmark">
+        <img src="GH Tipografico Roxo.svg" alt="Secretaria Visual" />
+        <span class="brand-sub">Central de Agentes IA</span>
+      </div>
+    </div>
+
+    <div class="orch-pill active" id="orch-pill" onclick="goToOrchestrator()">
+      <div class="orch-dot pulse" id="orch-dot"></div>
+      <span class="orch-label">Orquestrador</span>
+      <span class="orch-badge">HUB</span>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <span class="section-label">Agentes</span>
+  </div>
+
+  <div class="agents-list" id="agents-list"></div>
+
+  <div class="sidebar-footer">
+    <div class="footer-dot"></div>
+    <span class="footer-text">n8n conectado · <span id="agent-count">0</span> agentes</span>
+  </div>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <button class="hamburger" onclick="openSidebar()" aria-label="Menu">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="3" y1="6"  x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+
+    <div class="topbar-bc">
+      <span class="bc-item" id="bc-home" onclick="goToOrchestrator()">Central</span>
+      <span class="bc-sep" id="bc-sep" style="display:none">›</span>
+      <span class="bc-item current" id="bc-agent" style="display:none"></span>
+    </div>
+
+    <div class="topbar-right">
+      <div class="active-chip" id="active-chip">
+        <div class="orch-dot green pulse" style="width:6px;height:6px;"></div>
+        <span id="chip-name"></span>
+      </div>
+      <button class="end-btn" id="end-btn" onclick="endSession()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        <span>Encerrar</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── VIEW: Orquestrador ─── -->
+  <div class="view active" id="view-orchestrator">
+    <div class="orch-scroll fade-in">
+
+      <div class="welcome-wrap">
+        <div class="eyebrow">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+          Orquestrador ativo
+        </div>
+        <h1 class="welcome-title">Qual agente você<br/>quer <span>ativar hoje?</span></h1>
+        <p class="welcome-desc">
+          Sou o orquestrador da Secretaria Visual. Gerencio todos os agentes IA disponíveis.
+          Escolha um agente abaixo — cada um está conectado a um fluxo especializado no n8n.
+        </p>
+      </div>
+
+      <div class="flow-preview">
+        <div class="flow-label">Como funciona</div>
+        <div class="bubble-row">
+          <div class="bav ai-av">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="bubble ai-b">Qual agente você quer usar? Temos Petshop, Delivery, Imobiliária e Concessionária disponíveis.</div>
+        </div>
+        <div class="bubble-row user-r">
+          <div class="bav usr-av">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <div class="bubble usr-b">PETSHOP</div>
+        </div>
+        <div class="bubble-row">
+          <div class="bav ai-av">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="bubble ai-b">Petshop ativado! Pode mandar uma mensagem que o agente já está pronto.</div>
+        </div>
+      </div>
+
+      <div class="grid-wrap">
+        <div class="grid-label">Selecione um agente para começar</div>
+        <div class="grid" id="agents-grid"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── VIEW: Chat ─── -->
+  <div class="view" id="view-chat">
+    <div class="chat-view">
+
+      <div class="chat-banner">
+        <div class="cb-icon" id="cb-icon"></div>
+        <div class="cb-info">
+          <div class="cb-name">
+            <span id="cb-name-text"></span>
+            <span class="cb-running">
+              <div class="orch-dot green pulse" style="width:4px;height:4px;"></div>
+              Rodando
+            </span>
+          </div>
+          <div class="cb-desc" id="cb-desc-text"></div>
+        </div>
+      </div>
+
+      <div class="messages-area" id="messages-area"></div>
+
+      <div class="input-area">
+        <div class="input-wrap">
+          <textarea id="chat-input" rows="1"
+            placeholder="Mande uma mensagem para o agente..."
+            onkeydown="handleEnter(event)"
+            oninput="autoResize(this)"></textarea>
+          <button class="send-btn" id="send-btn" onclick="sendMessage()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="input-hint">Enter para enviar · Shift+Enter para nova linha</div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════════
+//  AGENTES
+// ══════════════════════════════════════════════════
+const AGENTS = [
+  {
+    id: 'petshop',
+    name: 'Petshop',
+    tag: 'Atendimento & Serviços',
+    desc: 'Agendamentos, consultas e atendimento especializado para clientes de petshop.',
+    webhook: 'https://webhook.iacompanyhorizon.com.br/webhook/petshope',
+    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5.172C10 3.782 8.423 2.679 6.5 3c-2.823.47-4.113 6.006-4 7 .08.703 1.725 1.722 3.656 1 1.261-.472 1.96-1.45 2.344-2.5"/><path d="M14.267 5.172c0-1.39 1.577-2.493 3.5-2.172 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75z"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444c0-1.061-.162-2.2-.493-3.309m-9.243-6.082A8.801 8.801 0 0 1 12 5c.78 0 1.5.108 2.161.306"/></svg>`
+  },
+  {
+    id: 'delivery',
+    name: 'Delivery',
+    tag: 'Pedidos & Entregas',
+    desc: 'Acompanhamento de pedidos, rastreio de entregas e suporte ao cliente.',
+    webhook: 'https://webhook.iacompanyhorizon.com.br/webhook/delivery',
+    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`
+  },
+  {
+    id: 'imobiliaria',
+    name: 'Imobiliária',
+    tag: 'Imóveis & Visitas',
+    desc: 'Consulta de imóveis disponíveis, agendamento de visitas e informações de contratos.',
+    webhook: 'https://webhook.iacompanyhorizon.com.br/webhook/imobiliariaamostragem',
+    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`
+  },
+  {
+    id: 'conc',
+    name: 'Concessionária',
+    tag: 'Veículos & Negociação',
+    desc: 'Consulta de estoque, simulação de financiamento e agendamento de test drive.',
+    webhook: 'https://webhook.iacompanyhorizon.com.br/webhook/conc',
+    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg>`
+  }
+];
+
+// ══════════════════════════════════════════════════
+//  ESTADO
+// ══════════════════════════════════════════════════
+let activeAgent = null;
+let messages    = [];
+let isTyping    = false;
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+function init() {
+  renderSidebar();
+  renderGrid();
+  document.getElementById('agent-count').textContent = AGENTS.length;
+}
+
+// ══════════════════════════════════════════════════
+//  SIDEBAR — mobile
+// ══════════════════════════════════════════════════
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  const overlay = document.getElementById('sidebar-overlay');
+  overlay.classList.add('open');
+  overlay.style.display = 'block';
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  const overlay = document.getElementById('sidebar-overlay');
+  overlay.classList.remove('open');
+  setTimeout(() => { overlay.style.display = 'none'; }, 300);
+}
+
+// Fechar sidebar ao selecionar agente em mobile
+function maybeCloseSidebar() {
+  if (window.innerWidth <= 900) closeSidebar();
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER SIDEBAR
+// ══════════════════════════════════════════════════
+function renderSidebar() {
+  document.getElementById('agents-list').innerHTML = AGENTS.map(a => `
+    <div class="agent-card ${activeAgent?.id === a.id ? 'active' : ''}"
+         onclick="activateAgent('${a.id}')" role="button" tabindex="0">
+      <div class="ac-top">
+        <div class="ac-icon">${a.icon}</div>
+        <div class="ac-info">
+          <div class="ac-name">${a.name}</div>
+          <div class="ac-tag">${a.tag}</div>
+        </div>
+        <span class="ac-badge ${activeAgent?.id === a.id ? 'running' : 'available'}">
+          ${activeAgent?.id === a.id ? 'Ativo' : 'Livre'}
+        </span>
+      </div>
+      <div class="ac-desc">${a.desc}</div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER GRID
+// ══════════════════════════════════════════════════
+function renderGrid() {
+  document.getElementById('agents-grid').innerHTML = AGENTS.map(a => `
+    <div class="grid-card" onclick="activateAgent('${a.id}')" role="button" tabindex="0">
+      <div class="gc-icon">${a.icon}</div>
+      <div class="gc-name">${a.name}</div>
+      <div class="gc-desc">${a.desc}</div>
+      <div class="gc-footer">
+        <span class="gc-avail">
+          <div style="width:5px;height:5px;border-radius:50%;background:#22c55e;"></div>
+          Disponível
+        </span>
+        <div class="gc-arrow">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  ATIVAR AGENTE
+// ══════════════════════════════════════════════════
+function activateAgent(id) {
+  const agent = AGENTS.find(a => a.id === id);
+  if (!agent) return;
+
+  activeAgent = agent;
+  messages    = [];
+
+  maybeCloseSidebar();
+
+  // Breadcrumb
+  document.getElementById('bc-sep').style.display   = 'inline';
+  document.getElementById('bc-agent').style.display = 'inline';
+  document.getElementById('bc-agent').textContent   = agent.name;
+
+  // Chip + botão
+  document.getElementById('chip-name').textContent = agent.name;
+  document.getElementById('active-chip').classList.add('show');
+  document.getElementById('end-btn').classList.add('show');
+
+  // Orquestrador → inativo
+  document.getElementById('orch-pill').classList.remove('active');
+  document.getElementById('orch-dot').classList.remove('pulse');
+
+  // Banner
+  document.getElementById('cb-icon').innerHTML        = agent.icon;
+  document.getElementById('cb-name-text').textContent = agent.name;
+  document.getElementById('cb-desc-text').textContent = agent.desc;
+
+  renderSidebar();
+  showView('chat');
+
+  setTimeout(() => {
+    showTyping();
+    setTimeout(() => {
+      hideTyping();
+      addMessage('ai', welcomeMsg(agent));
+    }, 1000 + Math.random() * 700);
+  }, 250);
+
+  setTimeout(() => document.getElementById('chat-input').focus(), 400);
+}
+
+function welcomeMsg(a) {
+  const map = {
+    petshop:     `Olá! O agente **Petshop** está ativo. Posso ajudar com agendamentos de banho e tosa, consultas veterinárias e informações de produtos. Como posso te ajudar?`,
+    delivery:    `Olá! O agente **Delivery** está ativo. Posso rastrear seu pedido, informar previsão de entrega e resolver qualquer problema com sua encomenda. O que você precisa?`,
+    imobiliaria: `Olá! O agente **Imobiliária** está ativo. Posso apresentar imóveis disponíveis, agendar visitas e tirar dúvidas sobre contratos e documentação. Por onde começamos?`,
+    conc:        `Olá! O agente **Concessionária** está ativo. Posso consultar nosso estoque de veículos, simular financiamentos e agendar um test drive. O que você gostaria de saber?`,
+  };
+  return map[a.id] || `Olá! O agente **${a.name}** está ativo. Como posso te ajudar?`;
+}
+
+// ══════════════════════════════════════════════════
+//  ENCERRAR
+// ══════════════════════════════════════════════════
+function endSession() { goToOrchestrator(); }
+
+function goToOrchestrator() {
+  activeAgent = null;
+
+  document.getElementById('bc-sep').style.display   = 'none';
+  document.getElementById('bc-agent').style.display = 'none';
+  document.getElementById('active-chip').classList.remove('show');
+  document.getElementById('end-btn').classList.remove('show');
+
+  document.getElementById('orch-pill').classList.add('active');
+  document.getElementById('orch-dot').classList.add('pulse');
+
+  renderSidebar();
+  showView('orchestrator');
+}
+
+// ══════════════════════════════════════════════════
+//  MENSAGENS
+// ══════════════════════════════════════════════════
+function sendMessage() {
+  const inp  = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text || isTyping) return;
+
+  addMessage('user', text);
+  inp.value = '';
+  inp.style.height = 'auto';
+
+  callWebhook(activeAgent.webhook, text);
+}
+
+function addMessage(role, text) {
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  messages.push({ role, text, time });
+  renderMessages();
+}
+
+function renderMessages() {
+  const area  = document.getElementById('messages-area');
+  const aName = activeAgent?.name || 'Agente';
+
+  area.innerHTML = messages.map((m, i) => {
+    const ai  = m.role === 'ai';
+    const isNew = i === messages.length - 1;
+    return `
+      <div class="msg-row ${ai ? '' : 'user-row'} ${isNew ? 'fade-in' : ''}">
+        <div class="msg-av ${ai ? 'ai' : 'hu'}">
+          ${ai
+            ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>`
+            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+          }
+        </div>
+        <div class="msg-body">
+          <div class="msg-sender">${ai ? aName : 'Você'}</div>
+          <div class="msg-bubble ${ai ? 'ai-msg' : 'usr-msg'}">${fmt(m.text)}</div>
+          <div class="msg-time">${m.time}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  scrollBottom();
+}
+
+function fmt(t) {
+  return t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>');
+}
+
+function showTyping() {
+  isTyping = true;
+  const area = document.getElementById('messages-area');
+  const row  = document.createElement('div');
+  row.className = 'msg-row fade-in';
+  row.id = 'typing-row';
+  row.innerHTML = `
+    <div class="msg-av ai">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>
+    </div>
+    <div class="typing-bub"><div class="td"></div><div class="td"></div><div class="td"></div></div>
+  `;
+  area.appendChild(row);
+  scrollBottom();
+}
+
+function hideTyping() {
+  isTyping = false;
+  const r = document.getElementById('typing-row');
+  if (r) r.remove();
+}
+
+function scrollBottom() {
+  const a = document.getElementById('messages-area');
+  setTimeout(() => a.scrollTo({ top: a.scrollHeight, behavior: 'smooth' }), 40);
+}
+
+// ══════════════════════════════════════════════════
+//  WEBHOOK n8n
+// ══════════════════════════════════════════════════
+async function callWebhook(url, message) {
+  showTyping();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        agent:     activeAgent?.id,
+        timestamp: new Date().toISOString()
+      })
+    });
+
+    const data = await res.json();
+    hideTyping();
+
+    const text =
+      data?.output   ||
+      data?.response ||
+      data?.message  ||
+      data?.text     ||
+      data?.content  ||
+      (Array.isArray(data) && (data[0]?.output || data[0]?.text || data[0]?.message)) ||
+      JSON.stringify(data);
+
+    addMessage('ai', text);
+
+  } catch (err) {
+    hideTyping();
+    addMessage('ai', 'Não consegui conectar ao agente agora. Verifique a conexão e tente novamente.');
+    console.error('[webhook error]', err);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${name}`)?.classList.add('active');
+}
+
+function handleEnter(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// Fechar sidebar com Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeSidebar();
+  if (e.key === 'Enter' && (e.target.classList.contains('agent-card') || e.target.classList.contains('grid-card'))) {
+    e.target.click();
+  }
+});
+
+init();
+</script>
+</body>
+</html>
