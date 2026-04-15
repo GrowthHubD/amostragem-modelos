@@ -540,10 +540,10 @@
   <div class="sidebar-header">
     <div class="brand">
       <div class="brand-symbol">
-        <img src="Símbolo v.1 Transparente.svg" alt="GH" />
+        <img src="gh-simbolo.svg" alt="GH" />
       </div>
       <div class="brand-wordmark">
-        <img src="GH Tipografico Roxo.svg" alt="Secretaria Visual" />
+        <img src="gh-tipografico.svg" alt="Secretaria Visual" />
         <span class="brand-sub">Central de Agentes IA</span>
       </div>
     </div>
@@ -741,6 +741,8 @@ const AGENTS = [
 let activeAgent = null;
 let messages    = [];
 let isTyping    = false;
+let _welcomeTimers = [];
+let _activationId  = 0;
 
 // ══════════════════════════════════════════════════
 //  INIT
@@ -826,8 +828,15 @@ function activateAgent(id) {
   const agent = AGENTS.find(a => a.id === id);
   if (!agent) return;
 
+  // Cancelar timers pendentes do agente anterior
+  _welcomeTimers.forEach(t => clearTimeout(t));
+  _welcomeTimers = [];
+  hideTyping();
+  const myActivation = ++_activationId;
+
   activeAgent = agent;
   messages    = [];
+  renderMessages();
 
   maybeCloseSidebar();
 
@@ -853,13 +862,17 @@ function activateAgent(id) {
   renderSidebar();
   showView('chat');
 
-  setTimeout(() => {
+  const t1 = setTimeout(() => {
+    if (_activationId !== myActivation) return;
     showTyping();
-    setTimeout(() => {
+    const t2 = setTimeout(() => {
+      if (_activationId !== myActivation) return;
       hideTyping();
       addMessage('ai', welcomeMsg(agent));
     }, 1000 + Math.random() * 700);
+    _welcomeTimers.push(t2);
   }, 250);
+  _welcomeTimers.push(t1);
 
   setTimeout(() => document.getElementById('chat-input').focus(), 400);
 }
@@ -880,6 +893,11 @@ function welcomeMsg(a) {
 function endSession() { goToOrchestrator(); }
 
 function goToOrchestrator() {
+  _welcomeTimers.forEach(t => clearTimeout(t));
+  _welcomeTimers = [];
+  hideTyping();
+  ++_activationId;
+
   activeAgent = null;
 
   document.getElementById('bc-sep').style.display   = 'none';

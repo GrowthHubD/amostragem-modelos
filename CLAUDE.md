@@ -11,8 +11,8 @@ O usuário tem um **fluxo orquestrador no n8n** que gerencia múltiplos sub-flux
 ```
 d:\Projetos-vibeocding\secretaria-visual\
 ├── index.html                      ← App completo (HTML + CSS + JS inline)
-├── GH Tipografico Roxo.svg         ← Wordmark da empresa (tipografia roxa)
-├── Símbolo v.1 Transparente.svg    ← Ícone/símbolo da marca GH
+├── gh-tipografico.svg               ← Wordmark da empresa (tipografia roxa)
+├── gh-simbolo.svg                   ← Ícone/símbolo da marca GH
 └── CLAUDE.md                       ← Este arquivo
 ```
 

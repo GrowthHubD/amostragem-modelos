@@ -11,11 +11,11 @@ const AGENTS_META = {
     welcome: `Olá! O agente **Petshop** está ativo. Posso ajudar com agendamentos de banho e tosa, consultas veterinárias e informações de produtos. Como posso te ajudar?`,
   },
   delivery: {
-    name: 'Delivery',
-    tag:  'Pedidos & Entregas',
-    desc: 'Acompanhamento de pedidos, rastreio de entregas e suporte ao cliente.',
-    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
-    welcome: `Olá! O agente **Delivery** está ativo. Posso rastrear seu pedido, informar previsão de entrega e resolver qualquer problema com sua encomenda. O que você precisa?`,
+    name: 'Restaurante',
+    tag:  'Pedidos & Reservas',
+    desc: 'Pedidos para delivery, reservas de mesa e atendimento do GH Bar e Restaurante.',
+    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l1.578 4.657A2 2 0 0 0 6.484 8H17.52a2 2 0 0 0 1.904-1.343L21 2"/><path d="M12 12v10"/><path d="M5 22h14"/><path d="M5 8v4a7 7 0 0 0 14 0V8"/></svg>`,
+    welcome: `Olá! O agente **Restaurante** está ativo. Posso ajudar com pedidos para delivery ou reservar uma mesa no GH Bar e Restaurante. O que você prefere?`,
   },
   imobiliaria: {
     name: 'Imobiliária',
@@ -317,7 +317,7 @@ async function sendMessage() {
     }
 
     hideTyping();
-    addMessage('ai', reply);
+    addMessage('ai', reply, data.images || null);
   } catch {
     if (activeAgent?.id !== sendAgentId) { hideTyping(); return; }
     hideTyping();
@@ -328,9 +328,11 @@ async function sendMessage() {
 // ══════════════════════════════════════════════════
 //  MENSAGENS
 // ══════════════════════════════════════════════════
-function addMessage(role, text) {
+function addMessage(role, text, images) {
   const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  messages.push({ role, text, time });
+  messages.push({ role, text, time, images: images || null });
+  // Salvar dados para expand
+  if (images) images.forEach(p => { _galleryData[p.ref] = p; });
   renderMessages();
 }
 
@@ -349,6 +351,7 @@ function renderMessages() {
         <div class="msg-body">
           <div class="msg-sender">${ai ? aName : 'Você'}</div>
           <div class="msg-bubble ${ai ? 'ai-msg' : 'usr-msg'}">${fmt(m.text)}</div>
+          ${ai && m.images ? renderImageGallery(m.images) : ''}
           <div class="msg-time">${m.time}</div>
         </div>
       </div>`;
@@ -394,7 +397,77 @@ function fmt(t) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[IMG:[^\]]*\]/gi, '')
+    .replace(/REF-\d+/gi, '')
     .replace(/\n/g, '<br/>');
+}
+
+// Renderizar galeria de imagens quando o servidor envia
+function renderImageGallery(imagesData) {
+  if (!imagesData || imagesData.length === 0) return '';
+
+  return imagesData.map(property => {
+    const preview = property.images.slice(0, 3);
+    const hasMore = property.images.length > 3;
+    const galleryId = `gallery-${property.ref}-${Date.now()}`;
+
+    return `
+      <div class="chat-gallery" id="${galleryId}">
+        <div class="gallery-header">${property.name}</div>
+        <div class="gallery-strip">
+          ${preview.map(img => `
+            <div class="gallery-thumb" onclick="openImageModal('${img.url}', '${img.label} — ${property.name}')">
+              <img src="${img.url}" alt="${img.label}" loading="lazy" />
+              <span class="gallery-thumb-label">${img.label}</span>
+            </div>
+          `).join('')}
+          ${hasMore ? `<div class="gallery-more" data-ref="${property.ref}" data-gallery="${galleryId}" onclick="expandGallery(this)">+${property.images.length - 3} fotos</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Cache para expand
+const _galleryData = {};
+
+function expandGallery(btn) {
+  const ref = btn.dataset.ref;
+  const galleryId = btn.dataset.gallery;
+  const data = _galleryData[ref];
+  const el = document.getElementById(galleryId);
+  if (!el || !data) return;
+
+  el.innerHTML = `
+    <div class="gallery-header">${data.name}</div>
+    <div class="gallery-grid">
+      ${data.images.map(img => `
+        <div class="gallery-thumb" onclick="openImageModal('${img.url}', '${img.label} — ${data.name}')">
+          <img src="${img.url}" alt="${img.label}" loading="lazy" />
+          <span class="gallery-thumb-label">${img.label}</span>
+        </div>
+      `).join('')}
+    </div>`;
+
+  scrollBottom();
+}
+
+function openImageModal(url, title) {
+  const existing = document.getElementById('img-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'img-modal';
+  modal.className = 'img-modal';
+  modal.onclick = () => modal.remove();
+  modal.innerHTML = `
+    <div class="img-modal-content" onclick="event.stopPropagation()">
+      <img src="${url}" alt="${title}" />
+      <div class="img-modal-title">${title}</div>
+      <button class="img-modal-close" onclick="document.getElementById('img-modal').remove()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`;
+  document.body.appendChild(modal);
 }
 
 function iconAI() {
