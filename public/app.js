@@ -116,16 +116,11 @@ function parsePathAgent() {
 }
 
 async function loadAgents() {
-  try {
-    const res  = await fetch('/api/agents');
-    const data = await res.json(); // [{ id, name }]
-    agents = data.map(a => ({ id: a.id, ...AGENTS_META[a.id] })).filter(a => a.name);
-    renderSidebar();
-    renderGrid();
-    document.getElementById('agent-count').textContent = agents.length;
-  } catch (err) {
-    console.error('[loadAgents]', err);
-  }
+  const ACTIVE_IDS = ['petshop', 'delivery', 'imobiliaria', 'conc', 'odonto', 'hotel'];
+  agents = ACTIVE_IDS.map(id => ({ id, ...AGENTS_META[id] })).filter(a => a.name);
+  renderSidebar();
+  renderGrid();
+  document.getElementById('agent-count').textContent = agents.length;
 }
 
 // ══════════════════════════════════════════════════
