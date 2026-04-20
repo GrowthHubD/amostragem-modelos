@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Secretaria Visual — Central de Agentes</title>
+  <title>Agentes IA</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -46,7 +47,7 @@
 
   <div class="sidebar-footer">
     <div class="footer-dot"></div>
-    <span class="footer-text">n8n conectado · <span id="agent-count">—</span> agentes</span>
+    <span class="footer-text">Conectado · <span id="agent-count">—</span> agentes</span>
   </div>
 </aside>
 
@@ -95,36 +96,41 @@
         </div>
         <h1 class="welcome-title">Qual agente você<br/>quer <span>ativar hoje?</span></h1>
         <p class="welcome-desc">
-          Sou o orquestrador da Secretaria Visual. Gerencio todos os agentes IA disponíveis.
-          Escolha um agente abaixo — cada um está conectado a um fluxo especializado no n8n.
+          Explore nossos agentes IA especializados. Cada um simula um atendimento real,
+          com personalidade, fluxo de conversa e regras próprias. Escolha um abaixo e teste!
         </p>
       </div>
 
       <div class="flow-preview">
         <div class="flow-label">Como funciona</div>
-        <div class="bubble-row">
-          <div class="bav ai-av">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-            </svg>
+        <div class="flow-steps">
+          <div class="flow-step" style="--delay: 0s">
+            <div class="flow-step-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            </div>
+            <div class="flow-step-title">Escolha um agente</div>
+            <div class="flow-step-desc">Clique em qualquer card abaixo</div>
           </div>
-          <div class="bubble ai-b">Qual agente você quer usar? Temos Petshop, Delivery, Imobiliária e Concessionária disponíveis.</div>
-        </div>
-        <div class="bubble-row user-r">
-          <div class="bav usr-av">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-            </svg>
+          <div class="flow-arrow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
           </div>
-          <div class="bubble usr-b">PETSHOP</div>
-        </div>
-        <div class="bubble-row">
-          <div class="bav ai-av">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-            </svg>
+          <div class="flow-step" style="--delay: .15s">
+            <div class="flow-step-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <div class="flow-step-title">Converse com a IA</div>
+            <div class="flow-step-desc">Cada agente tem personalidade única</div>
           </div>
-          <div class="bubble ai-b">Petshop ativado! Pode mandar uma mensagem que o agente já está pronto.</div>
+          <div class="flow-arrow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <div class="flow-step" style="--delay: .3s">
+            <div class="flow-step-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="flow-step-title">Teste à vontade</div>
+            <div class="flow-step-desc">Troque de agente quando quiser</div>
+          </div>
         </div>
       </div>
 
