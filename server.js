@@ -8,6 +8,73 @@ const app  = express();
 const PORT = 3444;
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENAI_API_KEY     = process.env.OPENAI_API_KEY;
+
+// ══════════════════════════════════════════════════
+//  LLM — OpenAI (primario) + OpenRouter (fallback)
+// ══════════════════════════════════════════════════
+async function callOpenAI(agent, apiMessages) {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY nao configurada');
+  const model = agent.model.replace(/^openai\//, '');
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: apiMessages,
+      max_tokens: 300,
+      temperature: 0.7,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.choices?.[0]?.message?.content || null;
+}
+
+async function callOpenRouter(agent, apiMessages) {
+  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY nao configurada');
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'HTTP-Referer': `http://localhost:${PORT}`,
+      'X-Title': 'Secretaria Visual',
+    },
+    body: JSON.stringify({
+      model: agent.model,
+      messages: apiMessages,
+      max_tokens: 300,
+      temperature: 0.7,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.choices?.[0]?.message?.content || null;
+}
+
+async function callLLM(agent, apiMessages) {
+  const isOpenAIModel = /^openai\//.test(agent.model) || OPENAI_API_KEY;
+  if (isOpenAIModel && OPENAI_API_KEY) {
+    try {
+      const out = await callOpenAI(agent, apiMessages);
+      if (out) return out;
+      throw new Error('resposta vazia');
+    } catch (err) {
+      console.error(`[openai fail → fallback openrouter]`, err.message);
+    }
+  }
+  return await callOpenRouter(agent, apiMessages);
+}
 
 // ══════════════════════════════════════════════════
 //  SESSOES IN-MEMORY (historico de conversa)
@@ -747,8 +814,8 @@ app.post('/api/chat/:agentId', async (req, res) => {
     return res.status(404).json({ error: `Agente "${agentId}" nao encontrado.` });
   }
 
-  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === 'COLE_SUA_CHAVE_AQUI') {
-    return res.status(500).json({ error: 'API key do OpenRouter nao configurada. Edite o arquivo .env' });
+  if (!OPENAI_API_KEY && (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === 'COLE_SUA_CHAVE_AQUI')) {
+    return res.status(500).json({ error: 'Nenhuma API key configurada (OPENAI_API_KEY ou OPENROUTER_API_KEY). Edite o .env' });
   }
 
   const userMessage = req.body.message;
@@ -803,30 +870,7 @@ app.post('/api/chat/:agentId', async (req, res) => {
   }
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': `http://localhost:${PORT}`,
-        'X-Title': 'Secretaria Visual',
-      },
-      body: JSON.stringify({
-        model: agent.model,
-        messages: apiMessages,
-        max_tokens: 300,
-        temperature: 0.7,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (data.error) {
-      console.error(`[openrouter error] ${agentId}:`, data.error);
-      return res.status(502).json({ error: data.error.message || 'Erro na API do OpenRouter.' });
-    }
-
-    const reply = data.choices?.[0]?.message?.content || 'Sem resposta do modelo.';
+    const reply = await callLLM(agent, apiMessages) || 'Sem resposta do modelo.';
     session.messages.push({ role: 'assistant', content: reply });
 
     // Para imobiliaria: detectar se o usuario pediu fotos e qual imovel

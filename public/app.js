@@ -1,4 +1,105 @@
 // ══════════════════════════════════════════════════
+//  SUPABASE / AUTH
+// ══════════════════════════════════════════════════
+const SUPABASE_URL      = 'https://buiwcxygokdbmsdhquee.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1aXdjeHlnb2tkYm1zZGhxdWVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MDMyMjQsImV4cCI6MjA5MjI3OTIyNH0.mBEAYhaUv6yBMnshslBN4kaU3g0x9YvGVk2U1uDy67w';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const SESSION_KEY = 'sv_session';
+
+function getSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s?.token || !s?.expires_at) return null;
+    if (new Date(s.expires_at).getTime() <= Date.now()) { clearSession(); return null; }
+    return s;
+  } catch { return null; }
+}
+function setSession(s) { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
+function clearSession() { localStorage.removeItem(SESSION_KEY); }
+
+async function loginRpc(username, password) {
+  const { data, error } = await sb.rpc('fn_login', { p_username: username, p_password: password });
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+  return data[0]; // { token, role, expires_at, username }
+}
+
+async function validateSessionRpc(token) {
+  const { data, error } = await sb.rpc('fn_validate_session', { p_token: token });
+  if (error) throw error;
+  return data?.[0] ?? { valid: false };
+}
+
+async function logoutRpc(token) {
+  try { await sb.rpc('fn_logout', { p_token: token }); } catch {}
+}
+
+let heartbeatTimer = null;
+
+// Retorna true se a sessão atual ainda é válida. Se não for, dispara forceLogout
+// e retorna false. Usado pelo heartbeat, por visibilitychange e antes de ações
+// que gastam recurso (chat) pra evitar uso com sessão revogada.
+async function checkSessionOrLogout() {
+  const s = getSession();
+  if (!s) return false;
+  try {
+    const v = await validateSessionRpc(s.token);
+    if (!v.valid) { await forceLogout(); return false; }
+    if (v.expires_at && v.expires_at !== s.expires_at) {
+      setSession({ ...s, expires_at: v.expires_at });
+    }
+    return true;
+  } catch {
+    // falha de rede — não deslogar, só deixa o próximo tick tentar
+    return true;
+  }
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  // Primeiro check imediato + intervalo curto pra reagir rápido a revogações
+  checkSessionOrLogout();
+  heartbeatTimer = setInterval(checkSessionOrLogout, 5000);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// Revalida imediatamente ao voltar pra aba/janela — evita esperar o próximo tick
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && getSession()) checkSessionOrLogout();
+});
+window.addEventListener('focus', () => {
+  if (getSession()) checkSessionOrLogout();
+});
+
+// Limpa todo o estado de chat do cliente. Chamado no logout pra evitar
+// vazamento de histórico/memória entre contas no mesmo tab.
+function resetChatState() {
+  activeAgent = null;
+  messages = [];
+  for (const k of Object.keys(chatHistories)) delete chatHistories[k];
+  const area = document.getElementById('messages-area');
+  if (area) area.innerHTML = '';
+  const input = document.getElementById('chat-input');
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+}
+
+async function forceLogout() {
+  const s = getSession();
+  if (s?.token) await logoutRpc(s.token);
+  clearSession();
+  stopHeartbeat();
+  resetChatState();
+  history.replaceState({ view: 'login' }, '', '/login');
+  renderAuthUI();
+  showView('login');
+}
+
+// ══════════════════════════════════════════════════
 //  CONFIGURAÇÃO DE AGENTES
 //  (metadados visuais — webhooks ficam só no server)
 // ══════════════════════════════════════════════════
@@ -85,7 +186,33 @@ const chatHistories = {}; // histórico separado por agente { agentId: [] }
 // ══════════════════════════════════════════════════
 async function init() {
   bindEvents();
+  bindAuthEvents();
   await loadAgents();
+  renderAuthUI();
+
+  const path = location.pathname;
+  const session = getSession();
+
+  if (path === '/login') {
+    if (session) return goTo('/');
+    return showView('login');
+  }
+
+  if (!session) {
+    history.replaceState({ view: 'login' }, '', '/login');
+    return showView('login');
+  }
+
+  startHeartbeat();
+
+  if (path === '/admin') {
+    if (session.role !== 'admin') return goTo('/');
+    history.replaceState({ view: 'admin' }, '', '/admin');
+    showView('admin');
+    refreshAdminTable();
+    return;
+  }
+
   initHistory();
 }
 
@@ -98,21 +225,47 @@ function initHistory() {
     activateAgent(initialId, true);
   } else {
     history.replaceState({ view: 'orchestrator' }, '', '/');
+    showView('orchestrator');
   }
 
   window.addEventListener('popstate', (e) => {
+    const session = getSession();
+    if (!session) { showView('login'); return; }
     const state = e.state || { view: 'orchestrator' };
+    if (state.view === 'login')       { showView('login'); return; }
+    if (state.view === 'admin') {
+      if (session.role === 'admin') { showView('admin'); refreshAdminTable(); }
+      else goTo('/');
+      return;
+    }
     if (state.view === 'agent' && state.id) {
       if (activeAgent?.id !== state.id) activateAgent(state.id, true);
     } else {
       if (activeAgent) goToOrchestrator(true);
+      else showView('orchestrator');
     }
   });
 }
 
 function parsePathAgent() {
   const m = location.pathname.match(/^\/([a-z0-9_-]+)$/i);
-  return m ? m[1] : null;
+  if (!m) return null;
+  if (m[1] === 'login' || m[1] === 'admin') return null;
+  return m[1];
+}
+
+function goTo(path) {
+  history.pushState({ view: path === '/admin' ? 'admin' : path === '/login' ? 'login' : 'orchestrator' }, '', path);
+  // Dispara reavaliação
+  if (path === '/login') { showView('login'); return; }
+  if (path === '/admin') {
+    const s = getSession();
+    if (s?.role === 'admin') { showView('admin'); refreshAdminTable(); }
+    else showView('orchestrator');
+    return;
+  }
+  if (activeAgent) goToOrchestrator(true);
+  else showView('orchestrator');
 }
 
 async function loadAgents() {
@@ -312,9 +465,13 @@ function activateAgent(id, fromPopState = false) {
     setTimeout(async () => {
       showTyping();
       try {
+        const s = getSession();
         const res = await fetch(`/api/chat/${initAgentId}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(s?.token ? { 'x-session-id': s.token } : {}),
+          },
           body: JSON.stringify({ message: 'olá', init: true }),
         });
         const data = await res.json();
@@ -389,6 +546,10 @@ async function sendMessage() {
   const text  = input.value.trim();
   if (!text || isTyping) return;
 
+  // Revalida sessão antes de consumir token — se foi revogada, boot imediato
+  const stillValid = await checkSessionOrLogout();
+  if (!stillValid) return;
+
   const sendAgentId = activeAgent.id;
   addMessage('user', text);
   input.value = '';
@@ -396,9 +557,13 @@ async function sendMessage() {
 
   showTyping();
   try {
+    const s = getSession();
     const res  = await fetch(`/api/chat/${sendAgentId}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(s?.token ? { 'x-session-id': s.token } : {}),
+      },
       body: JSON.stringify({ message: text }),
     });
     const data = await res.json();
@@ -486,6 +651,7 @@ function scrollBottom() {
 function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(`view-${name}`)?.classList.add('active');
+  document.body.classList.toggle('is-login', name === 'login');
 }
 
 function fmt(t) {
@@ -623,6 +789,180 @@ function iconAI() {
 }
 function iconUser() {
   return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+}
+
+// ══════════════════════════════════════════════════
+//  AUTH UI — eventos e handlers
+// ══════════════════════════════════════════════════
+function bindAuthEvents() {
+  document.getElementById('login-form').addEventListener('submit', handleLoginSubmit);
+  document.getElementById('footer-logout').addEventListener('click', handleLogoutClick);
+  document.getElementById('sidebar-admin-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    goTo('/admin');
+  });
+  document.getElementById('admin-create-form').addEventListener('submit', handleCreateTempSubmit);
+  document.getElementById('admin-refresh').addEventListener('click', refreshAdminTable);
+}
+
+function renderAuthUI() {
+  const s = getSession();
+  const logoutBtn = document.getElementById('footer-logout');
+  const adminLink = document.getElementById('sidebar-admin-link');
+  const footerText = document.getElementById('footer-text');
+
+  if (!s) {
+    logoutBtn.style.display = 'none';
+    adminLink.style.display = 'none';
+    footerText.textContent = '';
+    return;
+  }
+
+  logoutBtn.style.display = 'inline-flex';
+  adminLink.style.display = (s.role === 'admin') ? 'flex' : 'none';
+  const who = s.role === 'admin' ? 'admin' : 'convidado';
+  footerText.innerHTML = `<span style="opacity:.7">${who} ·</span> <span id="agent-count">${agents.length || '—'}</span> agentes`;
+}
+
+async function handleLoginSubmit(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl  = document.getElementById('login-error');
+  const submit   = document.getElementById('login-submit');
+  const submitTx = document.getElementById('login-submit-text');
+
+  errorEl.style.display = 'none';
+  submit.disabled = true;
+  submitTx.textContent = 'Entrando…';
+
+  try {
+    const session = await loginRpc(username, password);
+    if (!session) {
+      errorEl.textContent = 'Usuário ou senha inválidos.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    setSession(session);
+    document.getElementById('login-password').value = '';
+    // Garante isolamento de histórico/memória entre contas no mesmo tab
+    resetChatState();
+    startHeartbeat();
+    renderAuthUI();
+
+    if (session.role === 'admin') goTo('/admin');
+    else goTo('/');
+  } catch (err) {
+    errorEl.textContent = 'Erro ao autenticar. Tente novamente.';
+    errorEl.style.display = 'block';
+    console.error('[login]', err);
+  } finally {
+    submit.disabled = false;
+    submitTx.textContent = 'Entrar';
+  }
+}
+
+async function handleLogoutClick() {
+  await forceLogout();
+}
+
+async function refreshAdminTable() {
+  const s = getSession();
+  const tbl = document.getElementById('admin-table');
+  if (!s || s.role !== 'admin') { tbl.innerHTML = ''; return; }
+  tbl.innerHTML = '<div class="admin-empty">Carregando…</div>';
+  try {
+    const { data, error } = await sb.rpc('fn_list_temp_logins', { p_token: s.token });
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      tbl.innerHTML = '<div class="admin-empty">Nenhuma credencial ativa no momento.</div>';
+      return;
+    }
+    tbl.innerHTML = data.map(t => {
+      const msLeft = new Date(t.expires_at).getTime() - Date.now();
+      const minLeft = Math.max(0, Math.round(msLeft / 60000));
+      return `
+        <div class="admin-row" data-id="${t.id}">
+          <div class="admin-row-main">
+            <div class="admin-row-user">${escapeHtml(t.username)}</div>
+            <div class="admin-row-meta">expira em ${minLeft} min · ${new Date(t.expires_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+          </div>
+          <button class="admin-row-del" data-id="${t.id}" title="Revogar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>`;
+    }).join('');
+    tbl.querySelectorAll('.admin-row-del').forEach(btn => {
+      btn.addEventListener('click', () => handleDeleteTemp(btn.dataset.id));
+    });
+  } catch (err) {
+    console.error('[admin list]', err);
+    tbl.innerHTML = '<div class="admin-empty">Erro ao carregar. Faça login novamente.</div>';
+  }
+}
+
+async function handleCreateTempSubmit(e) {
+  e.preventDefault();
+  const s = getSession();
+  if (!s || s.role !== 'admin') return;
+
+  const username = document.getElementById('admin-new-username').value.trim();
+  const password = document.getElementById('admin-new-password').value;
+  const minutes  = parseInt(document.getElementById('admin-new-minutes').value, 10) || 10;
+
+  const errorEl = document.getElementById('admin-error');
+  const toastEl = document.getElementById('admin-toast');
+  const btn     = document.getElementById('admin-create-btn');
+
+  errorEl.style.display = 'none';
+  toastEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Criando…';
+
+  try {
+    const { error } = await sb.rpc('fn_create_temp_login', {
+      p_token: s.token, p_username: username, p_password: password, p_minutes: minutes,
+    });
+    if (error) throw error;
+    toastEl.innerHTML = `
+      <div class="toast-title">Credencial criada ✓</div>
+      <div class="toast-body">
+        <div><strong>Usuário:</strong> ${escapeHtml(username)}</div>
+        <div><strong>Senha:</strong> <code>${escapeHtml(password)}</code></div>
+        <div><strong>Expira em:</strong> ${minutes} minuto(s)</div>
+      </div>`;
+    toastEl.style.display = 'block';
+    document.getElementById('admin-create-form').reset();
+    document.getElementById('admin-new-minutes').value = '10';
+    refreshAdminTable();
+  } catch (err) {
+    errorEl.textContent = (err?.message || 'Erro ao criar').replace(/^.*Nao autorizado.*$/i, 'Sessão expirada — faça login de novo.');
+    errorEl.style.display = 'block';
+    console.error('[create temp]', err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Criar credencial';
+  }
+}
+
+async function handleDeleteTemp(id) {
+  const s = getSession();
+  if (!s || s.role !== 'admin') return;
+  if (!confirm('Revogar esta credencial agora?')) return;
+  try {
+    const { error } = await sb.rpc('fn_delete_temp_login', { p_token: s.token, p_temp_id: id });
+    if (error) throw error;
+    refreshAdminTable();
+  } catch (err) {
+    alert('Erro ao revogar: ' + (err?.message || 'desconhecido'));
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Start ──
