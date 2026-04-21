@@ -1,20 +1,10 @@
-import 'dotenv/config';
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { processChatMessage } from './src/chat.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app  = express();
-const PORT = 3444;
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENAI_API_KEY     = process.env.OPENAI_API_KEY;
-
 // ══════════════════════════════════════════════════
-//  LLM — OpenAI (primario) + OpenRouter (fallback)
+// Módulo compartilhado: dados + helpers de chat
+// Usado por server.js (local) e src/worker.js (Cloudflare)
 // ══════════════════════════════════════════════════
-async function callOpenAI(agent, apiMessages) {
+
+// LLM — recebe chaves via parâmetro pra funcionar em Node + Workers
+export async function callOpenAI(agent, apiMessages, OPENAI_API_KEY) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY nao configurada');
   const model = agent.model.replace(/^openai\//, '');
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -23,140 +13,43 @@ async function callOpenAI(agent, apiMessages) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model,
-      messages: apiMessages,
-      max_tokens: 300,
-      temperature: 0.7,
-    }),
+    body: JSON.stringify({ model, messages: apiMessages, max_tokens: 300, temperature: 0.7 }),
   });
   const data = await res.json();
-  if (!res.ok || data.error) {
-    const msg = data?.error?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
+  if (!res.ok || data.error) throw new Error(data?.error?.message || `HTTP ${res.status}`);
   return data.choices?.[0]?.message?.content || null;
 }
 
-async function callOpenRouter(agent, apiMessages) {
+export async function callOpenRouter(agent, apiMessages, OPENROUTER_API_KEY, referer = 'https://secretaria-visual') {
   if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY nao configurada');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'HTTP-Referer': `http://localhost:${PORT}`,
+      'HTTP-Referer': referer,
       'X-Title': 'Secretaria Visual',
     },
-    body: JSON.stringify({
-      model: agent.model,
-      messages: apiMessages,
-      max_tokens: 300,
-      temperature: 0.7,
-    }),
+    body: JSON.stringify({ model: agent.model, messages: apiMessages, max_tokens: 300, temperature: 0.7 }),
   });
   const data = await res.json();
-  if (!res.ok || data.error) {
-    const msg = data?.error?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
+  if (!res.ok || data.error) throw new Error(data?.error?.message || `HTTP ${res.status}`);
   return data.choices?.[0]?.message?.content || null;
 }
 
-async function callLLM(agent, apiMessages) {
-  const isOpenAIModel = /^openai\//.test(agent.model) || OPENAI_API_KEY;
-  if (isOpenAIModel && OPENAI_API_KEY) {
+export async function callLLM(agent, apiMessages, { OPENAI_API_KEY, OPENROUTER_API_KEY }) {
+  if (OPENAI_API_KEY) {
     try {
-      const out = await callOpenAI(agent, apiMessages);
+      const out = await callOpenAI(agent, apiMessages, OPENAI_API_KEY);
       if (out) return out;
-      throw new Error('resposta vazia');
     } catch (err) {
-      console.error(`[openai fail → fallback openrouter]`, err.message);
+      console.error('[openai fail → fallback openrouter]', err.message);
     }
   }
-  return await callOpenRouter(agent, apiMessages);
+  return await callOpenRouter(agent, apiMessages, OPENROUTER_API_KEY);
 }
 
-// ══════════════════════════════════════════════════
-//  SESSOES IN-MEMORY (historico de conversa)
-// ══════════════════════════════════════════════════
-const sessions = new Map();
-
-function getSession(agentId, sessionId) {
-  const key = `${agentId}:${sessionId}`;
-  if (!sessions.has(key)) {
-    sessions.set(key, { messages: [], lastActivity: Date.now() });
-  }
-  const s = sessions.get(key);
-  s.lastActivity = Date.now();
-  return s;
-}
-
-// Limpar sessoes inativas (30 min)
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, session] of sessions) {
-    if (now - session.lastActivity > 30 * 60 * 1000) sessions.delete(key);
-  }
-}, 5 * 60 * 1000);
-
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — MESAS DO RESTAURANTE
-// ══════════════════════════════════════════════════
-const tables = [
-  { id: 1,  capacity: 2, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-  { id: 2,  capacity: 2, status: 'occupied',  reservedBy: 'Carlos Silva',     reservedFor: '20:00', guests: 2 },
-  { id: 3,  capacity: 2, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-  { id: 4,  capacity: 4, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-  { id: 5,  capacity: 4, status: 'occupied',  reservedBy: 'Maria Santos',     reservedFor: '19:30', guests: 3 },
-  { id: 6,  capacity: 4, status: 'occupied',  reservedBy: 'Ana Rodrigues',    reservedFor: '20:30', guests: 4 },
-  { id: 7,  capacity: 6, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-  { id: 8,  capacity: 6, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-  { id: 9,  capacity: 8, status: 'occupied',  reservedBy: 'Familia Oliveira', reservedFor: '19:00', guests: 7 },
-  { id: 10, capacity: 8, status: 'available', reservedBy: null, reservedFor: null, guests: null },
-];
-
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — SLOTS DE AGENDAMENTO
-// ══════════════════════════════════════════════════
-const SLOTS = {
-  petshop: {
-    hours: ['14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30'],
-    services: ['Banho', 'Tosa', 'Banho + Tosa', 'Tosa Higienica'],
-  },
-  imobiliaria: {
-    hours: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
-    services: ['Visita ao imovel'],
-  },
-  conc: {
-    hours: ['10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00'],
-    services: ['Atendimento na loja'],
-  },
-};
-
-let nextAppointmentId = 5;
-const appointments = [
-  // Petshop
-  { id: 1, agentId: 'petshop', clientName: 'Fernanda Lima', date: '2026-04-15', time: '14:30',
-    service: 'Banho + Tosa', status: 'confirmed',
-    details: { pet: 'Thor (Golden)', notes: 'Alergico a shampoo comum' } },
-  { id: 2, agentId: 'petshop', clientName: 'Roberto Dias', date: '2026-04-15', time: '16:00',
-    service: 'Banho', status: 'confirmed',
-    details: { pet: 'Luna (Shih-tzu)' } },
-  // Imobiliaria
-  { id: 3, agentId: 'imobiliaria', clientName: 'Patricia Mendes', date: '2026-04-16', time: '10:00',
-    service: 'Visita ao imovel', status: 'confirmed',
-    details: { property: 'Apartamento 3Q - Setor Bueno' } },
-  // GH iStore
-  { id: 4, agentId: 'conc', clientName: 'Lucas Ferreira', date: '2026-04-16', time: '15:00',
-    service: 'Atendimento na loja', status: 'confirmed',
-    details: { model: 'iPhone 15 128GB Preto', phone: '(64) 99999-1234' } },
-];
-
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — CARDÁPIO DO RESTAURANTE
-// ══════════════════════════════════════════════════
-const RESTAURANT_MENU = {
+export const RESTAURANT_MENU = {
   pizzas: [
     { name: 'Margherita',        desc: 'molho, mussarela, tomate, manjericão',          price: 45.90 },
     { name: 'Calabresa',         desc: 'calabresa, cebola, azeitona',                   price: 47.90 },
@@ -201,10 +94,7 @@ const RESTAURANT_MENU = {
   },
 };
 
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — CATÁLOGO DE IMÓVEIS (dados textuais)
-// ══════════════════════════════════════════════════
-const PROPERTY_CATALOG = {
+export const PROPERTY_CATALOG = {
   'REF-101': {
     name: 'Audace Rebouças',
     address: 'Rua 24 de Maio, 1125 - Rebouças, Curitiba - PR',
@@ -264,10 +154,7 @@ const PROPERTY_CATALOG = {
   },
 };
 
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — IMAGENS DOS IMOVEIS (Google Drive)
-// ══════════════════════════════════════════════════
-const PROPERTY_IMAGES = {
+export const PROPERTY_IMAGES = {
   'REF-101': {
     name: 'Audace Reboucas',
     images: [
@@ -327,10 +214,7 @@ const PROPERTY_IMAGES = {
   },
 };
 
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — CATÁLOGO DE IPHONES (GH iStore)
-// ══════════════════════════════════════════════════
-const IPHONE_CATALOG = {
+export const IPHONE_CATALOG = {
   'IP-SE3': {
     name: 'iPhone SE (3ª geração)',
     year: 2022,
@@ -380,10 +264,7 @@ const IPHONE_CATALOG = {
   },
 };
 
-// ══════════════════════════════════════════════════
-//  BANCO DE DADOS — IMAGENS DOS IPHONES (Google Drive)
-// ══════════════════════════════════════════════════
-const IPHONE_IMAGES = {
+export const IPHONE_IMAGES = {
   'IP-SE3': {
     name: 'iPhone SE (3ª geração)',
     images: [
@@ -404,10 +285,7 @@ const IPHONE_IMAGES = {
   },
 };
 
-// ══════════════════════════════════════════════════
-//  AGENTES — system prompts
-// ══════════════════════════════════════════════════
-const AGENTS = {
+export const AGENTS = {
   petshop: {
     name: 'Petshop',
     model: 'openai/gpt-4.1-mini',
@@ -790,77 +668,10 @@ NUNCA FAÇA:
   },
 };
 
-// ══════════════════════════════════════════════════
-//  MIDDLEWARE
-// ══════════════════════════════════════════════════
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
-// ══════════════════════════════════════════════════
-//  API — lista de agentes (sem expor prompts)
-// ══════════════════════════════════════════════════
-app.get('/api/agents', (_req, res) => {
-  const safe = Object.entries(AGENTS).map(([id, a]) => ({ id, name: a.name }));
-  res.json(safe);
-});
+export const IMAGE_TRIGGERS = /\b(foto|fotos|imagem|imagens|ver|mostr|veja|olha|quero ver|manda|envia|sim|claro|pode|quero|bora|manda ver|show)\b/i;
 
-// ══════════════════════════════════════════════════
-//  API — chat com agente via OpenRouter
-// ══════════════════════════════════════════════════
-app.post('/api/chat/:agentId', async (req, res) => {
-  const { agentId } = req.params;
-  const agent = AGENTS[agentId];
-
-  if (!agent) {
-    return res.status(404).json({ error: `Agente "${agentId}" nao encontrado.` });
-  }
-
-  if (!OPENAI_API_KEY && (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === 'COLE_SUA_CHAVE_AQUI')) {
-    return res.status(500).json({ error: 'Nenhuma API key configurada (OPENAI_API_KEY ou OPENROUTER_API_KEY). Edite o .env' });
-  }
-
-  const userMessage = req.body.message;
-  const isInit = req.body.init === true;
-  if (!userMessage) {
-    return res.status(400).json({ error: 'Mensagem nao pode estar vazia.' });
-  }
-
-  // Preferimos histórico vindo do cliente (mesmo caminho que o Cloudflare Worker).
-  // Fallback: se não vier, usamos a sessão in-memory antiga (retrocompatível).
-  let history = Array.isArray(req.body.history) ? req.body.history : null;
-  if (!history) {
-    const sessionId = req.headers['x-session-id'] || 'default';
-    const session = getSession(agentId, sessionId);
-    if (isInit) session.messages = [];
-    else session.messages.push({ role: 'user', content: userMessage });
-    history = session.messages.slice(0, isInit ? 0 : -1);
-  }
-
-  try {
-    const result = await processChatMessage({
-      agentId,
-      userMessage,
-      history,
-      isInit,
-      env: { OPENAI_API_KEY, OPENROUTER_API_KEY },
-    });
-    res.json(result);
-  } catch (err) {
-    const msg = err?.message || String(err);
-    if (msg.includes('nao encontrado')) return res.status(404).json({ error: msg });
-    if (msg.includes('API key'))        return res.status(500).json({ error: msg });
-    console.error(`[chat error] ${agentId}:`, msg);
-    res.status(502).json({ error: 'Nao foi possivel alcancar o modelo de IA. Tente novamente.' });
-  }
-});
-
-// ══════════════════════════════════════════════════
-//  DETECÇÃO DE PEDIDO DE IMAGENS (modular — qualquer agente)
-// ══════════════════════════════════════════════════
-const IMAGE_TRIGGERS = /\b(foto|fotos|imagem|imagens|ver|mostr|veja|olha|quero ver|manda|envia|sim|claro|pode|quero|bora|manda ver|show)\b/i;
-
-// Pré-detecção (antes da IA responder) — retorna nome do item ou null
-function preDetectImageIntent(agentId, userMsg, history) {
+export function preDetectImageIntent(agentId, userMsg, history) {
   const catalogs = {
     imobiliaria: { nameMap: PROPERTY_NAME_MAP, imageDb: PROPERTY_IMAGES, ambiguous: PROPERTY_AMBIGUOUS },
     conc:        { nameMap: IPHONE_NAME_MAP,   imageDb: IPHONE_IMAGES,   ambiguous: IPHONE_AMBIGUOUS },
@@ -897,13 +708,9 @@ function preDetectImageIntent(agentId, userMsg, history) {
   return null;
 }
 
-// ══════════════════════════════════════════════════
-//  INJEÇÃO DE CONTEXTO DINÂMICO
-// ══════════════════════════════════════════════════
+export const MENU_TRIGGERS = /\b(card[aá]pio|prato|pizza|pizzas|por[çc][aã]o|porcao|porcoes|por[çc][oõ]es|bebida|bebidas|sobremesa|sobremesas|pre[çc]o|precos?|quanto|custa|tem|cardapio|pedir|pedido|sabor\w*|rodizio|rodízio|calabresa|margherita|frango|portuguesa|queijo|pepperoni|chocolate|romeu|batata|peixe|costelinha|suco|cerveja|refrigerante|pudim|brownie|petit|promo|combo)\b/i;
 
-const MENU_TRIGGERS = /\b(card[aá]pio|prato|pizza|pizzas|por[çc][aã]o|porcao|porcoes|por[çc][oõ]es|bebida|bebidas|sobremesa|sobremesas|pre[çc]o|precos?|quanto|custa|tem|cardapio|pedir|pedido|sabor\w*|rodizio|rodízio|calabresa|margherita|frango|portuguesa|queijo|pepperoni|chocolate|romeu|batata|peixe|costelinha|suco|cerveja|refrigerante|pudim|brownie|petit|promo|combo)\b/i;
-
-function buildMenuContext(userMsg) {
+export function buildMenuContext(userMsg) {
   if (!MENU_TRIGGERS.test(userMsg.toLowerCase())) return null;
 
   const m = RESTAURANT_MENU;
@@ -936,7 +743,7 @@ RODÍZIO:
   Inclui: ${m.rodizio.descricao}`;
 }
 
-function buildCatalogContext(userMsg, history) {
+export function buildCatalogContext(userMsg, history) {
   const userLower = userMsg.toLowerCase();
   const recentCtx = history.slice(-8).map(m => m.content.toLowerCase()).join(' ');
   const combined = userLower + ' ' + recentCtx;
@@ -972,9 +779,9 @@ ${tipos}`;
   return `[Sistema — Catálogo de imóveis disponíveis]\n${lines}`;
 }
 
-const IPHONE_TRIGGERS = /\b(iphone|modelo|modelos|pre[çc]o|valor|quanto|especifica[çc][aã]o|chip|c[aâ]mera|bateria|armazenamento|gb|tela|cor|varia[çc][aã]o|op[çc][aã]o|op[çc][oõ]es|qual|me fala|me conta|comprar|quero|interesse|conhecer|ver os|quais|lista|catalogo|cat[aá]logo)\b/i;
+export const IPHONE_TRIGGERS = /\b(iphone|modelo|modelos|pre[çc]o|valor|quanto|especifica[çc][aã]o|chip|c[aâ]mera|bateria|armazenamento|gb|tela|cor|varia[çc][aã]o|op[çc][aã]o|op[çc][oõ]es|qual|me fala|me conta|comprar|quero|interesse|conhecer|ver os|quais|lista|catalogo|cat[aá]logo)\b/i;
 
-function buildIphoneContext(userMsg, history) {
+export function buildIphoneContext(userMsg, history) {
   const userLower = userMsg.toLowerCase();
   const recentCtx = history.slice(-8).map(m => m.content.toLowerCase()).join(' ');
   const combined = userLower + ' ' + recentCtx;
@@ -1006,8 +813,7 @@ ${vars}`;
   return `[Sistema — Catálogo GH iStore]\n${lines}`;
 }
 
-// ── Catálogo Imobiliária ──
-const PROPERTY_NAME_MAP = {
+export const PROPERTY_NAME_MAP = {
   'audace':     'REF-101',
   'reboucas':   'REF-101',
   'le monde':   'REF-102',
@@ -1019,10 +825,9 @@ const PROPERTY_NAME_MAP = {
   'tingui':     'REF-104',
 };
 
-const PROPERTY_AMBIGUOUS = { 'portao': ['REF-102', 'REF-103'] };
+export const PROPERTY_AMBIGUOUS = { 'portao': ['REF-102', 'REF-103'] };
 
-// ── Catálogo GH iStore ──
-const IPHONE_NAME_MAP = {
+export const IPHONE_NAME_MAP = {
   'iphone 15': 'IP-15',
   'iphone15':  'IP-15',
   'ip15':      'IP-15',
@@ -1037,23 +842,10 @@ const IPHONE_NAME_MAP = {
   'se terceira': 'IP-SE3',
   'iphone se 3': 'IP-SE3',
 };
-const IPHONE_AMBIGUOUS = {};
 
-// ── Catálogo Concessionária (legado — mantido para compatibilidade) ──
-const VEHICLE_IMAGES   = {};
-const VEHICLE_NAME_MAP = {};
-const VEHICLE_AMBIGUOUS = {};
+export const IPHONE_AMBIGUOUS = {};
 
-/**
- * Detecta pedido de imagens genérico.
- * @param {string} userMsg
- * @param {string} aiReply
- * @param {Array}  history
- * @param {Object} nameMap   — { keyword: refId }
- * @param {Object} imageDb   — { refId: { name, images: [{ label, driveId }] } }
- * @param {Object} ambiguous — { keyword: [refId, refId] } (opcional)
- */
-function detectCatalogImages(userMsg, aiReply, history, nameMap, imageDb, ambiguous = {}) {
+export function detectCatalogImages(userMsg, aiReply, history, nameMap, imageDb, ambiguous = {}) {
   const userLower = userMsg.toLowerCase();
 
   const userWantsImages = IMAGE_TRIGGERS.test(userLower);
@@ -1114,229 +906,56 @@ function detectCatalogImages(userMsg, aiReply, history, nameMap, imageDb, ambigu
   return result.length > 0 ? result : null;
 }
 
-// ══════════════════════════════════════════════════
-//  API — IMAGENS DOS IMOVEIS
-// ══════════════════════════════════════════════════
+// Wrapper unificado: recebe tudo do HTTP e retorna { reply, images }
+// História vem do cliente (stateless — funciona em Worker sem KV)
+export async function processChatMessage({ agentId, userMessage, history = [], isInit = false, env }) {
+  const agent = AGENTS[agentId];
+  if (!agent) throw new Error(`Agente "${agentId}" nao encontrado.`);
 
-// Listar imagens de um imovel
-app.get('/api/imoveis/:ref/images', (req, res) => {
-  const ref = req.params.ref.toUpperCase();
-  const property = PROPERTY_IMAGES[ref];
-  if (!property) return res.status(404).json({ error: 'Imovel nao encontrado.' });
-
-  const images = property.images.map(img => ({
-    label: img.label,
-    url: `/api/imoveis/img/${img.driveId}`,
-    thumbnail: `https://drive.google.com/thumbnail?id=${img.driveId}&sz=w400`,
-    full: `https://drive.google.com/thumbnail?id=${img.driveId}&sz=w1200`,
-  }));
-
-  res.json({ ref, name: property.name, images });
-});
-
-// Proxy de imagem do Google Drive (evita CORS)
-app.get('/api/imoveis/img/:driveId', async (req, res) => {
-  const { driveId } = req.params;
-  try {
-    const driveUrl = `https://drive.google.com/thumbnail?id=${driveId}&sz=w1200`;
-    const response = await fetch(driveUrl);
-    if (!response.ok) return res.status(502).json({ error: 'Erro ao buscar imagem.' });
-
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-
-    const buffer = await response.arrayBuffer();
-    res.send(Buffer.from(buffer));
-  } catch (err) {
-    console.error('[img proxy error]', err.message);
-    res.status(502).json({ error: 'Falha ao carregar imagem.' });
-  }
-});
-
-// ══════════════════════════════════════════════════
-//  API — MESAS DO RESTAURANTE
-// ══════════════════════════════════════════════════
-app.get('/api/restaurante/tables', (_req, res) => {
-  res.json(tables);
-});
-
-app.post('/api/restaurante/reserve', (req, res) => {
-  const { name, guests, time } = req.body;
-  if (!name || !guests || !time) {
-    return res.status(400).json({ error: 'Campos obrigatorios: name, guests, time' });
+  const { OPENAI_API_KEY, OPENROUTER_API_KEY } = env;
+  if (!OPENAI_API_KEY && !OPENROUTER_API_KEY) {
+    throw new Error('Nenhuma API key configurada (OPENAI_API_KEY ou OPENROUTER_API_KEY)');
   }
 
-  // Encontrar mesa disponivel com capacidade suficiente (menor possivel)
-  const available = tables
-    .filter(t => t.status === 'available' && t.capacity >= guests)
-    .sort((a, b) => a.capacity - b.capacity);
+  // Monta mensagens: system + histórico recente + user atual
+  const apiMessages = [{ role: 'system', content: agent.systemPrompt }];
+  if (!isInit && history.length > 0) {
+    apiMessages.push(...history.slice(-30));
+  }
+  apiMessages.push({ role: 'user', content: userMessage });
 
-  if (available.length === 0) {
-    return res.status(409).json({ error: 'Nenhuma mesa disponivel para essa quantidade de pessoas.' });
+  // Injeções dinâmicas por agente
+  if (agentId === 'delivery') {
+    const menuCtx = buildMenuContext(userMessage);
+    if (menuCtx) apiMessages.push({ role: 'system', content: menuCtx });
+  }
+  if (agentId === 'imobiliaria') {
+    const catCtx = buildCatalogContext(userMessage, [...history, { role: 'user', content: userMessage }]);
+    if (catCtx) apiMessages.push({ role: 'system', content: catCtx });
+  }
+  if (agentId === 'conc') {
+    const iphoneCtx = buildIphoneContext(userMessage, [...history, { role: 'user', content: userMessage }]);
+    if (iphoneCtx) apiMessages.push({ role: 'system', content: iphoneCtx });
   }
 
-  const table = available[0];
-  table.status = 'occupied';
-  table.reservedBy = name;
-  table.reservedFor = time;
-  table.guests = guests;
-
-  res.json({ message: `Mesa ${table.id} (${table.capacity} lugares) reservada com sucesso!`, table });
-});
-
-app.delete('/api/restaurante/reserve/:tableId', (req, res) => {
-  const tableId = parseInt(req.params.tableId);
-  const table = tables.find(t => t.id === tableId);
-
-  if (!table) return res.status(404).json({ error: 'Mesa nao encontrada.' });
-  if (table.status === 'available') return res.status(400).json({ error: 'Mesa ja esta livre.' });
-
-  table.status = 'available';
-  table.reservedBy = null;
-  table.reservedFor = null;
-  table.guests = null;
-
-  res.json({ message: `Reserva da mesa ${tableId} cancelada.`, table });
-});
-
-// Buscar reserva por nome
-app.get('/api/restaurante/reserve/search', (req, res) => {
-  const name = req.query.name?.toLowerCase();
-  if (!name) return res.status(400).json({ error: 'Parametro name obrigatorio.' });
-
-  const found = tables.filter(t => t.status === 'occupied' && t.reservedBy?.toLowerCase().includes(name));
-  res.json(found);
-});
-
-// ══════════════════════════════════════════════════
-//  API — AGENDAMENTOS (Petshop, Imobiliaria, Conc)
-// ══════════════════════════════════════════════════
-
-// Listar agendamentos de um agente
-app.get('/api/appointments/:agentId', (req, res) => {
-  const { agentId } = req.params;
-  const filtered = appointments.filter(a => a.agentId === agentId && a.status !== 'cancelled');
-  res.json(filtered);
-});
-
-// Slots disponiveis para uma data
-app.get('/api/appointments/:agentId/slots', (req, res) => {
-  const { agentId } = req.params;
-  const { date } = req.query;
-
-  if (!SLOTS[agentId]) return res.status(404).json({ error: 'Agente sem slots configurados.' });
-  if (!date) return res.status(400).json({ error: 'Parametro date obrigatorio (YYYY-MM-DD).' });
-
-  const booked = appointments
-    .filter(a => a.agentId === agentId && a.date === date && a.status === 'confirmed')
-    .map(a => a.time);
-
-  const available = SLOTS[agentId].hours.filter(h => !booked.includes(h));
-
-  res.json({
-    date,
-    services: SLOTS[agentId].services,
-    allSlots: SLOTS[agentId].hours,
-    bookedSlots: booked,
-    availableSlots: available,
-  });
-});
-
-// Criar agendamento
-app.post('/api/appointments/:agentId', (req, res) => {
-  const { agentId } = req.params;
-  const { clientName, date, time, service, details } = req.body;
-
-  if (!SLOTS[agentId]) return res.status(404).json({ error: 'Agente sem slots configurados.' });
-  if (!clientName || !date || !time || !service) {
-    return res.status(400).json({ error: 'Campos obrigatorios: clientName, date, time, service' });
+  const historyWithUser = [...history, { role: 'user', content: userMessage }];
+  const preImageName = preDetectImageIntent(agentId, userMessage, historyWithUser);
+  if (preImageName) {
+    apiMessages.push({
+      role: 'system',
+      content: `[Sistema] As fotos de ${preImageName} estão sendo exibidas ao cliente junto com esta resposta. Não diga "vou enviar" ou "posso mostrar" — as fotos já estão visíveis. Apenas confirme naturalmente, por exemplo "Aqui estão as fotos!".`,
+    });
   }
 
-  // Verificar se slot esta disponivel
-  const conflict = appointments.find(
-    a => a.agentId === agentId && a.date === date && a.time === time && a.status === 'confirmed'
-  );
-  if (conflict) {
-    return res.status(409).json({ error: `Horario ${time} no dia ${date} ja esta ocupado.` });
+  const reply = await callLLM(agent, apiMessages, { OPENAI_API_KEY, OPENROUTER_API_KEY }) || 'Sem resposta do modelo.';
+
+  const historyAfterReply = [...historyWithUser, { role: 'assistant', content: reply }];
+  let images = null;
+  if (agentId === 'imobiliaria') {
+    images = detectCatalogImages(userMessage, reply, historyAfterReply, PROPERTY_NAME_MAP, PROPERTY_IMAGES, PROPERTY_AMBIGUOUS);
+  } else if (agentId === 'conc') {
+    images = detectCatalogImages(userMessage, reply, historyAfterReply, IPHONE_NAME_MAP, IPHONE_IMAGES, IPHONE_AMBIGUOUS);
   }
 
-  const appointment = {
-    id: nextAppointmentId++,
-    agentId,
-    clientName,
-    date,
-    time,
-    service,
-    status: 'confirmed',
-    details: details || {},
-  };
-  appointments.push(appointment);
-
-  res.json({ message: 'Agendamento criado com sucesso!', appointment });
-});
-
-// Reagendar
-app.put('/api/appointments/:agentId/:id', (req, res) => {
-  const { agentId, id } = req.params;
-  const { date, time } = req.body;
-
-  const appt = appointments.find(a => a.id === parseInt(id) && a.agentId === agentId && a.status === 'confirmed');
-  if (!appt) return res.status(404).json({ error: 'Agendamento nao encontrado.' });
-
-  if (!date || !time) return res.status(400).json({ error: 'Campos obrigatorios: date, time' });
-
-  // Verificar conflito no novo horario
-  const conflict = appointments.find(
-    a => a.agentId === agentId && a.date === date && a.time === time && a.status === 'confirmed' && a.id !== appt.id
-  );
-  if (conflict) {
-    return res.status(409).json({ error: `Horario ${time} no dia ${date} ja esta ocupado.` });
-  }
-
-  const oldDate = appt.date;
-  const oldTime = appt.time;
-  appt.date = date;
-  appt.time = time;
-
-  res.json({ message: `Reagendado de ${oldDate} ${oldTime} para ${date} ${time}.`, appointment: appt });
-});
-
-// Cancelar
-app.delete('/api/appointments/:agentId/:id', (req, res) => {
-  const { agentId, id } = req.params;
-
-  const appt = appointments.find(a => a.id === parseInt(id) && a.agentId === agentId && a.status === 'confirmed');
-  if (!appt) return res.status(404).json({ error: 'Agendamento nao encontrado.' });
-
-  appt.status = 'cancelled';
-  res.json({ message: `Agendamento de ${appt.clientName} cancelado.`, appointment: appt });
-});
-
-// Buscar agendamento por nome
-app.get('/api/appointments/:agentId/search', (req, res) => {
-  const { agentId } = req.params;
-  const name = req.query.name?.toLowerCase();
-  if (!name) return res.status(400).json({ error: 'Parametro name obrigatorio.' });
-
-  const found = appointments.filter(
-    a => a.agentId === agentId && a.status === 'confirmed' && a.clientName.toLowerCase().includes(name)
-  );
-  res.json(found);
-});
-
-// Catch-all: serve index.html para qualquer rota não coberta pela API ou static
-// Necessário para path routing real (/petshop, /delivery, etc.)
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ══════════════════════════════════════════════════
-//  START
-// ══════════════════════════════════════════════════
-app.listen(PORT, () => {
-  console.log(`\n  Secretaria Visual rodando em http://localhost:${PORT}`);
-  console.log(`  OpenRouter API: ${OPENROUTER_API_KEY ? '✓ configurada' : '✗ NAO CONFIGURADA — edite .env'}`);
-  console.log(`  Mesas: ${tables.length} (${tables.filter(t => t.status === 'occupied').length} ocupadas)`);
-  console.log(`  Agendamentos: ${appointments.filter(a => a.status === 'confirmed').length} ativos\n`);
-});
+  return { reply, ...(images && { images }) };
+}

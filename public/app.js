@@ -472,7 +472,7 @@ function activateAgent(id, fromPopState = false) {
             'Content-Type': 'application/json',
             ...(s?.token ? { 'x-session-id': s.token } : {}),
           },
-          body: JSON.stringify({ message: 'olá', init: true }),
+          body: JSON.stringify({ message: 'olá', init: true, history: [] }),
         });
         const data = await res.json();
         const reply = data.reply || 'Olá! Como posso ajudar?';
@@ -541,6 +541,14 @@ function typingDelay(text) {
 // ══════════════════════════════════════════════════
 //  ENVIAR MENSAGEM
 // ══════════════════════════════════════════════════
+// Converte o formato interno (messages[]) pro formato que o worker/server espera
+function buildHistoryForApi(msgs) {
+  return msgs.map(m => ({
+    role: m.role === 'ai' ? 'assistant' : 'user',
+    content: m.text,
+  }));
+}
+
 async function sendMessage() {
   const input = document.getElementById('chat-input');
   const text  = input.value.trim();
@@ -551,6 +559,8 @@ async function sendMessage() {
   if (!stillValid) return;
 
   const sendAgentId = activeAgent.id;
+  // Captura histórico ANTES de adicionar a msg atual (worker adiciona user msg do campo message)
+  const historySnapshot = buildHistoryForApi(messages);
   addMessage('user', text);
   input.value = '';
   input.style.height = 'auto';
@@ -564,7 +574,7 @@ async function sendMessage() {
         'Content-Type': 'application/json',
         ...(s?.token ? { 'x-session-id': s.token } : {}),
       },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, history: historySnapshot }),
     });
     const data = await res.json();
     const reply = data.reply || data.error || 'Sem resposta.';
