@@ -5,7 +5,19 @@ const SUPABASE_URL      = 'https://buiwcxygokdbmsdhquee.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1aXdjeHlnb2tkYm1zZGhxdWVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MDMyMjQsImV4cCI6MjA5MjI3OTIyNH0.mBEAYhaUv6yBMnshslBN4kaU3g0x9YvGVk2U1uDy67w';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const SESSION_KEY = 'sv_session';
+const SESSION_KEY  = 'sv_session';
+const REMEMBER_KEY = 'sv_login_remember';
+
+function getRemembered() {
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function setRemembered(username, password) {
+  localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, password }));
+}
+function clearRemembered() { localStorage.removeItem(REMEMBER_KEY); }
 
 function getSession() {
   try {
@@ -94,6 +106,8 @@ async function forceLogout() {
   clearSession();
   stopHeartbeat();
   resetChatState();
+  // Marca pra não auto-relogar (logout manual ou sessão expirada)
+  sessionStorage.setItem('sv_skip_autologin', '1');
   history.replaceState({ view: 'login' }, '', '/login');
   renderAuthUI();
   showView('login');
@@ -200,7 +214,12 @@ async function init() {
 
   if (!session) {
     history.replaceState({ view: 'login' }, '', '/login');
-    return showView('login');
+    showView('login');
+    if (getRemembered() && !sessionStorage.getItem('sv_skip_autologin')) {
+      sessionStorage.setItem('sv_skip_autologin', '1');
+      setTimeout(() => document.getElementById('login-form').requestSubmit(), 100);
+    }
+    return;
   }
 
   startHeartbeat();
@@ -813,6 +832,15 @@ function bindAuthEvents() {
   });
   document.getElementById('admin-create-form').addEventListener('submit', handleCreateTempSubmit);
   document.getElementById('admin-refresh').addEventListener('click', refreshAdminTable);
+  prefillLoginFromRemembered();
+}
+
+function prefillLoginFromRemembered() {
+  const r = getRemembered();
+  if (!r) return;
+  document.getElementById('login-username').value = r.username || '';
+  document.getElementById('login-password').value = r.password || '';
+  document.getElementById('login-remember').checked = true;
 }
 
 function renderAuthUI() {
@@ -854,6 +882,11 @@ async function handleLoginSubmit(e) {
       return;
     }
     setSession(session);
+    if (document.getElementById('login-remember').checked) {
+      setRemembered(username, password);
+    } else {
+      clearRemembered();
+    }
     document.getElementById('login-password').value = '';
     // Garante isolamento de histórico/memória entre contas no mesmo tab
     resetChatState();
