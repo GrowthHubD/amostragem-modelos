@@ -922,13 +922,17 @@ async function refreshAdminTable() {
       return;
     }
     tbl.innerHTML = data.map(t => {
-      const msLeft = new Date(t.expires_at).getTime() - Date.now();
-      const minLeft = Math.max(0, Math.round(msLeft / 60000));
+      const expDate = new Date(t.expires_at);
+      const msLeft = expDate.getTime() - Date.now();
+      const left = formatDurationLeft(msLeft);
+      const when = (msLeft > 24 * 3600 * 1000)
+        ? expDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + expDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        : expDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       return `
         <div class="admin-row" data-id="${t.id}">
           <div class="admin-row-main">
             <div class="admin-row-user">${escapeHtml(t.username)}</div>
-            <div class="admin-row-meta">expira em ${minLeft} min · ${new Date(t.expires_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div class="admin-row-meta">expira em ${left} · ${when}</div>
           </div>
           <button class="admin-row-del" data-id="${t.id}" title="Revogar">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -954,7 +958,13 @@ async function handleCreateTempSubmit(e) {
 
   const username = document.getElementById('admin-new-username').value.trim();
   const password = document.getElementById('admin-new-password').value;
-  const minutes  = parseInt(document.getElementById('admin-new-minutes').value, 10) || 10;
+  const amount   = parseInt(document.getElementById('admin-new-amount').value, 10) || 10;
+  const unit     = document.getElementById('admin-new-unit').value;
+  const unitMul  = unit === 'days' ? 1440 : unit === 'hours' ? 60 : 1;
+  const minutes  = amount * unitMul;
+  const unitLabel = unit === 'days' ? (amount === 1 ? 'dia' : 'dias')
+                  : unit === 'hours' ? (amount === 1 ? 'hora' : 'horas')
+                  : (amount === 1 ? 'minuto' : 'minutos');
 
   const errorEl = document.getElementById('admin-error');
   const toastEl = document.getElementById('admin-toast');
@@ -975,11 +985,12 @@ async function handleCreateTempSubmit(e) {
       <div class="toast-body">
         <div><strong>Usuário:</strong> ${escapeHtml(username)}</div>
         <div><strong>Senha:</strong> <code>${escapeHtml(password)}</code></div>
-        <div><strong>Expira em:</strong> ${minutes} minuto(s)</div>
+        <div><strong>Expira em:</strong> ${amount} ${unitLabel}</div>
       </div>`;
     toastEl.style.display = 'block';
     document.getElementById('admin-create-form').reset();
-    document.getElementById('admin-new-minutes').value = '10';
+    document.getElementById('admin-new-amount').value = '10';
+    document.getElementById('admin-new-unit').value = 'minutes';
     refreshAdminTable();
   } catch (err) {
     errorEl.textContent = (err?.message || 'Erro ao criar').replace(/^.*Nao autorizado.*$/i, 'Sessão expirada — faça login de novo.');
@@ -1002,6 +1013,16 @@ async function handleDeleteTemp(id) {
   } catch (err) {
     alert('Erro ao revogar: ' + (err?.message || 'desconhecido'));
   }
+}
+
+function formatDurationLeft(ms) {
+  if (ms <= 0) return 'expirado';
+  const min = Math.round(ms / 60000);
+  if (min < 60)        return `${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 48)          return `${h} h`;
+  const d = Math.round(h / 24);
+  return `${d} dias`;
 }
 
 function escapeHtml(s) {

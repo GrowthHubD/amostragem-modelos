@@ -168,8 +168,8 @@ BEGIN
   END IF;
 
   v_minutes := COALESCE(p_minutes, 10);
-  IF v_minutes < 1 OR v_minutes > 1440 THEN
-    RAISE EXCEPTION 'Minutos fora do intervalo (1 a 1440)';
+  IF v_minutes < 1 OR v_minutes > 525600 THEN
+    RAISE EXCEPTION 'Minutos fora do intervalo (1 a 525600 = 365 dias)';
   END IF;
 
   INSERT INTO public.temp_logins(username, password_hash, expires_at, created_by)
