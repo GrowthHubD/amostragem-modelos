@@ -16,19 +16,25 @@ SELECT proname FROM pg_proc WHERE proname LIKE 'fn_wa%';  -- 6 funções
 ```
 
 ## 2. Secrets do Worker
-```bash
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY   # Settings > API > service_role
-npx wrangler secret put WA_WEBHOOK_SECRET           # gere com: openssl rand -hex 16
-# (OPENROUTER_API_KEY e OPENAI_API_KEY já existem do chat web)
-```
+Secrets nunca vão pelo git. Adicione no painel do Cloudflare — Worker →
+**Settings → Variables and Secrets** → tipo **Secret**:
+
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase → Settings → API → `service_role`
+- `WA_WEBHOOK_SECRET` — gere com `openssl rand -hex 16`
+- (`OPENROUTER_API_KEY` e `OPENAI_API_KEY` já existem do chat web)
+
+Alternativa por CLI: `npx wrangler secret put <NOME>`.
 Para dev local: copie `.dev.vars.example` → `.dev.vars` e preencha.
 
-## 3. Deploy
-```bash
-npx wrangler deploy
-```
-O deploy cria a classe `ChatBuffer` (migration tag `v1-chat-buffer`, SQLite — funciona
-no plano free).
+## 3. Deploy = push na main
+O Worker está conectado ao GitHub (Workers Builds): **todo push na `main` deploya
+sozinho**, incluindo a migração do Durable Object `ChatBuffer` (tag `v1-chat-buffer`,
+SQLite — funciona no plano free). Não precisa de `npx wrangler deploy` manual —
+use só se quiser deployar sem passar pelo git.
+
+É seguro o push ir ao ar antes dos secrets: o chat web não depende deles e as rotas
+do WhatsApp falham fechadas (webhook 404, ações do menu retornam erro) até os
+secrets existirem.
 
 ## 4. uazapi — criar a instância (painel da uazapi, uma vez)
 1. No painel do seu servidor uazapi, crie uma instância e copie o **token da instância**

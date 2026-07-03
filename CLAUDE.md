@@ -35,7 +35,8 @@ Documentação detalhada: `docs/decisao-de-stack.md` (por quê de cada escolha) 
 
 ```bash
 npx wrangler dev          # dev local (copie .dev.vars.example → .dev.vars antes)
-npx wrangler deploy       # deploy
+npx wrangler deploy       # deploy manual (normalmente desnecessário: push na
+                          # main deploya via Workers Builds/GitHub)
 npx wrangler secret put X # secrets: OPENAI_API_KEY, OPENROUTER_API_KEY,
                           #          SUPABASE_SERVICE_ROLE_KEY, WA_WEBHOOK_SECRET
 node --check src/*.js     # sanity de sintaxe
