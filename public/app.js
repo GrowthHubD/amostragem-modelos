@@ -229,6 +229,7 @@ async function init() {
     history.replaceState({ view: 'admin' }, '', '/admin');
     showView('admin');
     refreshAdminTable();
+    refreshWaAdmin();
     return;
   }
 
@@ -253,7 +254,7 @@ function initHistory() {
     const state = e.state || { view: 'orchestrator' };
     if (state.view === 'login')       { showView('login'); return; }
     if (state.view === 'admin') {
-      if (session.role === 'admin') { showView('admin'); refreshAdminTable(); }
+      if (session.role === 'admin') { showView('admin'); refreshAdminTable(); refreshWaAdmin(); }
       else goTo('/');
       return;
     }
@@ -279,7 +280,7 @@ function goTo(path) {
   if (path === '/login') { showView('login'); return; }
   if (path === '/admin') {
     const s = getSession();
-    if (s?.role === 'admin') { showView('admin'); refreshAdminTable(); }
+    if (s?.role === 'admin') { showView('admin'); refreshAdminTable(); refreshWaAdmin(); }
     else showView('orchestrator');
     return;
   }
@@ -832,6 +833,7 @@ function bindAuthEvents() {
   });
   document.getElementById('admin-create-form').addEventListener('submit', handleCreateTempSubmit);
   document.getElementById('admin-refresh').addEventListener('click', refreshAdminTable);
+  bindWaAdminEvents();
   prefillLoginFromRemembered();
 }
 
@@ -1027,6 +1029,320 @@ function formatDurationLeft(ms) {
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ══════════════════════════════════════════════════
+//  ADMIN — INTEGRAÇÃO WHATSAPP
+//  O browser fala com Supabase (config/prompts, token sempre mascarado)
+//  e com o Worker (/api/whatsapp/admin/*) para QR, status e teste de modelo.
+// ══════════════════════════════════════════════════
+let waDefaults = null;   // { agentId: { name, prompt } } — prompts padrão, vêm do Worker
+let waOverrides = {};    // { agentId: prompt } — overrides salvos no Supabase
+let waQrPollTimer = null;
+
+function bindWaAdminEvents() {
+  document.getElementById('wa-conn-form').addEventListener('submit', handleWaConnSave);
+  document.getElementById('wa-behavior-form').addEventListener('submit', handleWaBehaviorSave);
+  document.getElementById('wa-btn-qr').addEventListener('click', handleWaConnect);
+  document.getElementById('wa-btn-status').addEventListener('click', () => handleWaStatus(true));
+  document.getElementById('wa-btn-webhook').addEventListener('click', handleWaWebhook);
+  document.getElementById('wa-btn-disconnect').addEventListener('click', handleWaDisconnect);
+  document.getElementById('wa-btn-test').addEventListener('click', handleWaTestModel);
+  document.getElementById('wa-prompt-agent').addEventListener('change', showWaPrompt);
+  document.getElementById('wa-prompt-save').addEventListener('click', handleWaPromptSave);
+  document.getElementById('wa-prompt-reset').addEventListener('click', handleWaPromptReset);
+}
+
+async function waApi(action, extra = {}) {
+  const s = getSession();
+  const res = await fetch(`/api/whatsapp/admin/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session: s?.token, ...extra }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+// Mostra feedback num par error/toast (ids `${base}-error` e `${base}-toast`)
+function waMsg(base, text, isError = false) {
+  const errEl = document.getElementById(`${base}-error`);
+  const okEl  = document.getElementById(`${base}-toast`);
+  if (errEl) errEl.style.display = 'none';
+  if (okEl)  okEl.style.display = 'none';
+  const el = isError ? errEl : okEl;
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+}
+
+async function refreshWaAdmin() {
+  const s = getSession();
+  if (!s || s.role !== 'admin') return;
+  stopWaQrPoll();
+  loadWaConfig();
+  loadWaPrompts();
+  handleWaStatus(false); // silencioso: pode falhar enquanto a conexão não foi configurada
+}
+
+async function loadWaConfig() {
+  const s = getSession();
+  try {
+    const { data, error } = await sb.rpc('fn_wa_get_config', { p_token: s.token });
+    if (error) throw error;
+    document.getElementById('wa-enabled').checked = !!data.enabled;
+    document.getElementById('wa-url').value = data.uazapi_url || '';
+    const tokenEl = document.getElementById('wa-token');
+    tokenEl.value = '';
+    tokenEl.placeholder = data.has_token
+      ? `atual: ${data.token_masked} — cole aqui para substituir`
+      : 'cole o token da instância';
+    document.getElementById('wa-model').value          = data.model || '';
+    document.getElementById('wa-buffer-silence').value = data.buffer_silence_ms;
+    document.getElementById('wa-buffer-max').value     = data.buffer_max_ms;
+    document.getElementById('wa-typing-per-char').value = data.typing_ms_per_char;
+    document.getElementById('wa-typing-min').value     = data.typing_min_ms;
+    document.getElementById('wa-typing-max').value     = data.typing_max_ms;
+    document.getElementById('wa-daily-cap').value      = data.daily_reply_cap;
+    document.getElementById('wa-inactivity').value     = data.inactivity_timeout_min;
+    document.getElementById('wa-media-enabled').checked = !!data.media_enabled;
+    document.getElementById('wa-audio-reply').value    = data.audio_reply_text || '';
+  } catch (err) {
+    console.error('[wa config]', err);
+    waMsg('wa-conn', 'Erro ao carregar a configuração — a migração do WhatsApp já rodou no Supabase?', true);
+  }
+}
+
+async function waSaveConfig(partial) {
+  const s = getSession();
+  const { error } = await sb.rpc('fn_wa_save_config', { p_token: s.token, p_config: partial });
+  if (error) throw error;
+}
+
+async function handleWaConnSave(e) {
+  e.preventDefault();
+  const btn = document.getElementById('wa-conn-save');
+  btn.disabled = true;
+  try {
+    await waSaveConfig({
+      enabled: document.getElementById('wa-enabled').checked,
+      uazapi_url: document.getElementById('wa-url').value.trim(),
+      // vazio = manter o token atual (a RPC ignora string vazia)
+      uazapi_token: document.getElementById('wa-token').value.trim(),
+    });
+    waMsg('wa-conn', 'Conexão salva ✓');
+    loadWaConfig();
+  } catch (err) {
+    waMsg('wa-conn', err?.message || 'Erro ao salvar', true);
+  } finally { btn.disabled = false; }
+}
+
+async function handleWaBehaviorSave(e) {
+  e.preventDefault();
+  const btn = document.getElementById('wa-behavior-save');
+  const num = id => parseInt(document.getElementById(id).value, 10);
+  btn.disabled = true;
+  try {
+    await waSaveConfig({
+      model: document.getElementById('wa-model').value.trim(),
+      buffer_silence_ms:      num('wa-buffer-silence'),
+      buffer_max_ms:          num('wa-buffer-max'),
+      typing_ms_per_char:     num('wa-typing-per-char'),
+      typing_min_ms:          num('wa-typing-min'),
+      typing_max_ms:          num('wa-typing-max'),
+      daily_reply_cap:        num('wa-daily-cap'),
+      inactivity_timeout_min: num('wa-inactivity'),
+      media_enabled: document.getElementById('wa-media-enabled').checked,
+      audio_reply_text: document.getElementById('wa-audio-reply').value,
+    });
+    waMsg('wa-behavior', 'Comportamento salvo ✓ — o WhatsApp aplica em até 1 minuto');
+  } catch (err) {
+    waMsg('wa-behavior', err?.message || 'Erro ao salvar', true);
+  } finally { btn.disabled = false; }
+}
+
+// ── Conexão / QR ──
+function renderWaStatus(d) {
+  const pill   = document.getElementById('wa-status-pill');
+  const detail = document.getElementById('wa-status-detail');
+  const box    = document.getElementById('wa-qr-box');
+  const img    = document.getElementById('wa-qr-img');
+  const pair   = document.getElementById('wa-paircode');
+
+  let cls = 'off', label = d.status || 'desconectado';
+  if (d.loggedIn) { cls = 'on'; label = 'conectado'; }
+  else if (d.connected || d.status === 'connecting') { cls = 'mid'; label = 'conectando…'; }
+  pill.className = `wa-pill ${cls}`;
+  pill.textContent = label;
+  detail.textContent = d.loggedIn ? `Logado como ${d.profileName || d.owner || 'número conectado'}` : '';
+
+  if (!d.loggedIn && d.qrcode) {
+    img.src = d.qrcode.startsWith('data:') ? d.qrcode : `data:image/png;base64,${d.qrcode}`;
+    box.style.display = 'flex';
+    if (d.paircode) { pair.textContent = `Código alternativo: ${d.paircode}`; pair.style.display = 'block'; }
+    else pair.style.display = 'none';
+  } else {
+    box.style.display = 'none';
+    if (d.loggedIn) stopWaQrPoll();
+  }
+}
+
+async function handleWaStatus(loud = true) {
+  try {
+    renderWaStatus(await waApi('status'));
+  } catch (err) {
+    if (loud) { waMsg('wa-conn', `Status: ${err.message}`, true); }
+    else {
+      const pill = document.getElementById('wa-status-pill');
+      pill.className = 'wa-pill off';
+      pill.textContent = '—';
+    }
+  }
+}
+
+async function handleWaConnect() {
+  const btn = document.getElementById('wa-btn-qr');
+  btn.disabled = true;
+  try {
+    const d = await waApi('connect');
+    renderWaStatus(d);
+    if (!d.loggedIn) startWaQrPoll();
+  } catch (err) {
+    waMsg('wa-conn', `QR: ${err.message}`, true);
+  } finally { btn.disabled = false; }
+}
+
+// Enquanto o QR está na tela, checa o status a cada 4s (o QR renovado vem junto)
+function startWaQrPoll() {
+  stopWaQrPoll();
+  let ticks = 0;
+  waQrPollTimer = setInterval(async () => {
+    if (++ticks > 30) return stopWaQrPoll(); // desiste após ~2 min
+    try {
+      const d = await waApi('status');
+      renderWaStatus(d);
+      if (d.loggedIn) { stopWaQrPoll(); waMsg('wa-conn', 'WhatsApp conectado ✓'); }
+    } catch { /* segue tentando até o limite */ }
+  }, 4000);
+}
+function stopWaQrPoll() {
+  if (waQrPollTimer) { clearInterval(waQrPollTimer); waQrPollTimer = null; }
+}
+
+async function handleWaDisconnect() {
+  if (!confirm('Desconectar o número do WhatsApp agora?')) return;
+  try {
+    await waApi('disconnect');
+    waMsg('wa-conn', 'Desconectado.');
+    handleWaStatus(false);
+  } catch (err) { waMsg('wa-conn', err.message, true); }
+}
+
+async function handleWaWebhook() {
+  const btn = document.getElementById('wa-btn-webhook');
+  btn.disabled = true;
+  try {
+    const d = await waApi('setup-webhook');
+    waMsg('wa-conn', `Webhook registrado ✓ ${d.url}`);
+  } catch (err) { waMsg('wa-conn', `Webhook: ${err.message}`, true); }
+  finally { btn.disabled = false; }
+}
+
+async function handleWaTestModel() {
+  const btn = document.getElementById('wa-btn-test');
+  const model = document.getElementById('wa-model').value.trim();
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const d = await waApi('test-model', { model });
+    waMsg('wa-behavior', `Modelo ${d.model} respondeu ✓ ("${d.sample}")`);
+  } catch (err) { waMsg('wa-behavior', `Teste do modelo falhou: ${err.message}`, true); }
+  finally { btn.disabled = false; btn.textContent = 'Testar'; }
+}
+
+// ── Prompts ──
+async function loadWaPrompts() {
+  const s = getSession();
+  try {
+    const [defs, ovr] = await Promise.all([
+      waApi('default-prompts'),
+      sb.rpc('fn_wa_get_prompts', { p_token: s.token }),
+    ]);
+    if (ovr.error) throw ovr.error;
+    waDefaults = defs.prompts || {};
+    waOverrides = Object.fromEntries((ovr.data || []).map(r => [r.agent_id, r.system_prompt]));
+
+    const sel = document.getElementById('wa-prompt-agent');
+    const current = sel.value;
+    sel.innerHTML = Object.keys(waDefaults)
+      .map(id => `<option value="${id}"></option>`).join('');
+    refreshWaPromptSelectMarks();
+    if (current && waDefaults[current]) sel.value = current;
+    showWaPrompt();
+  } catch (err) {
+    console.error('[wa prompts]', err);
+    waMsg('wa-prompt', 'Erro ao carregar prompts — Worker publicado e migração rodada?', true);
+  }
+}
+
+function refreshWaPromptSelectMarks() {
+  const sel = document.getElementById('wa-prompt-agent');
+  for (const opt of sel.options) {
+    const base = waDefaults[opt.value]?.name || opt.value;
+    opt.textContent = waOverrides[opt.value] != null ? `${base} • personalizado` : base;
+  }
+}
+
+function showWaPrompt() {
+  if (!waDefaults) return;
+  const id = document.getElementById('wa-prompt-agent').value;
+  const hasOverride = waOverrides[id] != null;
+  document.getElementById('wa-prompt-text').value =
+    hasOverride ? waOverrides[id] : (waDefaults[id]?.prompt || '');
+  const badge = document.getElementById('wa-prompt-badge');
+  badge.style.display = 'inline-flex';
+  badge.className = `wa-pill ${hasOverride ? 'mid' : 'off'}`;
+  badge.textContent = hasOverride ? 'personalizado' : 'padrão';
+}
+
+async function handleWaPromptSave() {
+  const s = getSession();
+  const id = document.getElementById('wa-prompt-agent').value;
+  const text = document.getElementById('wa-prompt-text').value;
+  const btn = document.getElementById('wa-prompt-save');
+  if (!id || !waDefaults) return;
+  // Texto vazio ou idêntico ao padrão = remover o override
+  const isDefault = !text.trim() || text === waDefaults[id]?.prompt;
+  btn.disabled = true;
+  try {
+    const { error } = await sb.rpc('fn_wa_set_prompt', {
+      p_token: s.token, p_agent_id: id, p_prompt: isDefault ? null : text,
+    });
+    if (error) throw error;
+    if (isDefault) delete waOverrides[id]; else waOverrides[id] = text;
+    waMsg('wa-prompt', isDefault
+      ? 'Prompt voltou ao padrão ✓'
+      : 'Prompt personalizado salvo ✓ — o WhatsApp aplica em até 1 minuto');
+    refreshWaPromptSelectMarks();
+    showWaPrompt();
+  } catch (err) { waMsg('wa-prompt', err?.message || 'Erro ao salvar', true); }
+  finally { btn.disabled = false; }
+}
+
+async function handleWaPromptReset() {
+  const id = document.getElementById('wa-prompt-agent').value;
+  if (!id || !waDefaults) return;
+  if (waOverrides[id] == null) { showWaPrompt(); return; }
+  if (!confirm('Apagar a versão personalizada e voltar ao prompt padrão?')) return;
+  const s = getSession();
+  try {
+    const { error } = await sb.rpc('fn_wa_set_prompt', { p_token: s.token, p_agent_id: id, p_prompt: null });
+    if (error) throw error;
+    delete waOverrides[id];
+    waMsg('wa-prompt', 'Prompt voltou ao padrão ✓');
+    refreshWaPromptSelectMarks();
+    showWaPrompt();
+  } catch (err) { waMsg('wa-prompt', err?.message || 'Erro ao restaurar', true); }
 }
 
 // ── Start ──

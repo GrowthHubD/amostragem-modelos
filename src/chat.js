@@ -37,6 +37,38 @@ export async function callOpenRouter(agent, apiMessages, OPENROUTER_API_KEY, ref
   return data.choices?.[0]?.message?.content || null;
 }
 
+// Canal WhatsApp: OpenRouter APENAS, sem fallback de modelo.
+// Falha → retry 2x no MESMO modelo (backoff 1s/2s); esgotou → lança pro chamador
+// mandar a mensagem de cortesia. Nunca troca de modelo silenciosamente.
+export async function callOpenRouterOnly(model, apiMessages, OPENROUTER_API_KEY, { maxTokens = 300 } = {}) {
+  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY nao configurada');
+  let lastErr;
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 1000));
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://secretaria-visual',
+          'X-Title': 'Secretaria Visual — WhatsApp',
+        },
+        body: JSON.stringify({ model, messages: apiMessages, max_tokens: maxTokens, temperature: 0.7 }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      const out = data.choices?.[0]?.message?.content;
+      if (!out) throw new Error('Resposta vazia do modelo');
+      return out;
+    } catch (err) {
+      lastErr = err;
+      console.error(`[openrouter-only ${model} tentativa ${attempt + 1}/3]`, err.message);
+    }
+  }
+  throw lastErr;
+}
+
 export async function callLLM(agent, apiMessages, { OPENAI_API_KEY, OPENROUTER_API_KEY }) {
   if (OPENAI_API_KEY) {
     try {
@@ -906,19 +938,11 @@ export function detectCatalogImages(userMsg, aiReply, history, nameMap, imageDb,
   return result.length > 0 ? result : null;
 }
 
-// Wrapper unificado: recebe tudo do HTTP e retorna { reply, images }
-// História vem do cliente (stateless — funciona em Worker sem KV)
-export async function processChatMessage({ agentId, userMessage, history = [], isInit = false, env }) {
-  const agent = AGENTS[agentId];
-  if (!agent) throw new Error(`Agente "${agentId}" nao encontrado.`);
-
-  const { OPENAI_API_KEY, OPENROUTER_API_KEY } = env;
-  if (!OPENAI_API_KEY && !OPENROUTER_API_KEY) {
-    throw new Error('Nenhuma API key configurada (OPENAI_API_KEY ou OPENROUTER_API_KEY)');
-  }
-
-  // Monta mensagens: system + histórico recente + user atual
-  const apiMessages = [{ role: 'system', content: agent.systemPrompt }];
+// Monta as mensagens de API de um agente: system + histórico + user + injeções
+// dinâmicas (cardápio/catálogo/fotos). Compartilhado entre o chat web e o WhatsApp.
+// systemPrompt permite override (prompts editados no menu WhatsApp).
+export function buildAgentMessages({ agentId, systemPrompt, userMessage, history = [], isInit = false }) {
+  const apiMessages = [{ role: 'system', content: systemPrompt }];
   if (!isInit && history.length > 0) {
     apiMessages.push(...history.slice(-30));
   }
@@ -947,6 +971,29 @@ export async function processChatMessage({ agentId, userMessage, history = [], i
     });
   }
 
+  return apiMessages;
+}
+
+// Wrapper unificado: recebe tudo do HTTP e retorna { reply, images }
+// História vem do cliente (stateless — funciona em Worker sem KV)
+export async function processChatMessage({ agentId, userMessage, history = [], isInit = false, env }) {
+  const agent = AGENTS[agentId];
+  if (!agent) throw new Error(`Agente "${agentId}" nao encontrado.`);
+
+  const { OPENAI_API_KEY, OPENROUTER_API_KEY } = env;
+  if (!OPENAI_API_KEY && !OPENROUTER_API_KEY) {
+    throw new Error('Nenhuma API key configurada (OPENAI_API_KEY ou OPENROUTER_API_KEY)');
+  }
+
+  const apiMessages = buildAgentMessages({
+    agentId,
+    systemPrompt: agent.systemPrompt,
+    userMessage,
+    history,
+    isInit,
+  });
+
+  const historyWithUser = [...history, { role: 'user', content: userMessage }];
   const reply = await callLLM(agent, apiMessages, { OPENAI_API_KEY, OPENROUTER_API_KEY }) || 'Sem resposta do modelo.';
 
   const historyAfterReply = [...historyWithUser, { role: 'assistant', content: reply }];

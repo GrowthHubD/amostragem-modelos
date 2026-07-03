@@ -250,6 +250,130 @@
           </div>
         </div>
       </div>
+
+      <!-- ── Integração WhatsApp ── -->
+      <div class="admin-header wa-section-header">
+        <div>
+          <div class="admin-eyebrow">Integração</div>
+          <h1 class="admin-title">WhatsApp</h1>
+          <p class="admin-desc">Conecte um número via uazapi, ajuste o comportamento das respostas e edite os prompts dos agentes — tudo aqui vale só para o canal WhatsApp; o site continua igual.</p>
+        </div>
+      </div>
+
+      <div class="admin-grid">
+        <!-- Card: Conexão -->
+        <div class="admin-card">
+          <div class="admin-card-title">
+            Conexão (uazapi)
+            <span class="wa-pill" id="wa-status-pill">—</span>
+          </div>
+          <form class="admin-form" id="wa-conn-form">
+            <label class="field">
+              <span class="field-label">Servidor uazapi</span>
+              <input type="url" id="wa-url" placeholder="https://seu-subdominio.uazapi.com" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="field-label">Token da instância</span>
+              <input type="password" id="wa-token" placeholder="cole o token da instância" autocomplete="new-password" />
+            </label>
+            <label class="login-remember">
+              <input type="checkbox" id="wa-enabled" />
+              <span>Integração ativa (responder mensagens recebidas)</span>
+            </label>
+            <div class="admin-error" id="wa-conn-error" style="display:none"></div>
+            <button type="submit" class="login-submit" id="wa-conn-save">Salvar conexão</button>
+          </form>
+          <div class="wa-actions">
+            <button type="button" class="wa-btn" id="wa-btn-qr">Gerar QR code</button>
+            <button type="button" class="wa-btn" id="wa-btn-status">Atualizar status</button>
+            <button type="button" class="wa-btn" id="wa-btn-webhook">Registrar webhook</button>
+            <button type="button" class="wa-btn danger" id="wa-btn-disconnect">Desconectar</button>
+          </div>
+          <div class="wa-status-detail" id="wa-status-detail"></div>
+          <div class="wa-qr-box" id="wa-qr-box" style="display:none">
+            <img id="wa-qr-img" alt="QR code do WhatsApp" />
+            <div class="wa-qr-hint">Abra o WhatsApp &gt; Aparelhos conectados &gt; Conectar aparelho e escaneie. O código renova sozinho enquanto esta tela verifica a conexão.</div>
+            <div class="wa-paircode" id="wa-paircode" style="display:none"></div>
+          </div>
+          <div class="admin-toast" id="wa-conn-toast" style="display:none"></div>
+        </div>
+
+        <!-- Card: Comportamento -->
+        <div class="admin-card">
+          <div class="admin-card-title">Comportamento das respostas</div>
+          <form class="admin-form" id="wa-behavior-form">
+            <label class="field">
+              <span class="field-label">Modelo (OpenRouter — sem fallback)</span>
+              <div class="field-row">
+                <input type="text" id="wa-model" placeholder="google/gemini-3.5-flash" autocomplete="off" />
+                <button type="button" class="wa-btn" id="wa-btn-test">Testar</button>
+              </div>
+            </label>
+            <div class="wa-grid2">
+              <label class="field">
+                <span class="field-label">Buffer: silêncio (ms)</span>
+                <input type="number" id="wa-buffer-silence" min="1000" max="120000" step="500" />
+              </label>
+              <label class="field">
+                <span class="field-label">Buffer: espera máx. (ms)</span>
+                <input type="number" id="wa-buffer-max" min="1000" max="300000" step="500" />
+              </label>
+            </div>
+            <div class="wa-grid3">
+              <label class="field">
+                <span class="field-label">Digitação: ms/caract.</span>
+                <input type="number" id="wa-typing-per-char" min="0" max="500" />
+              </label>
+              <label class="field">
+                <span class="field-label">Digitação mín. (ms)</span>
+                <input type="number" id="wa-typing-min" min="0" max="30000" step="250" />
+              </label>
+              <label class="field">
+                <span class="field-label">Digitação máx. (ms)</span>
+                <input type="number" id="wa-typing-max" min="0" max="60000" step="250" />
+              </label>
+            </div>
+            <div class="wa-grid2">
+              <label class="field">
+                <span class="field-label">Limite diário de respostas</span>
+                <input type="number" id="wa-daily-cap" min="0" max="100000" />
+              </label>
+              <label class="field">
+                <span class="field-label">Voltar ao menu após (min)</span>
+                <input type="number" id="wa-inactivity" min="5" max="1440" />
+              </label>
+            </div>
+            <label class="login-remember">
+              <input type="checkbox" id="wa-media-enabled" />
+              <span>Enviar fotos de catálogo (imóveis e iPhones)</span>
+            </label>
+            <label class="field">
+              <span class="field-label">Resposta automática a áudios</span>
+              <textarea id="wa-audio-reply" rows="2" class="wa-textarea"></textarea>
+            </label>
+            <div class="admin-error" id="wa-behavior-error" style="display:none"></div>
+            <button type="submit" class="login-submit" id="wa-behavior-save">Salvar comportamento</button>
+          </form>
+          <div class="admin-toast" id="wa-behavior-toast" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Card: Prompts -->
+      <div class="admin-card wa-card-full">
+        <div class="admin-card-title">
+          Prompts dos agentes (canal WhatsApp)
+          <span class="wa-pill" id="wa-prompt-badge" style="display:none"></span>
+        </div>
+        <p class="wa-hint">O padrão de cada agente é o prompt atual do site. Salvar uma versão editada cria um "override" que vale só no WhatsApp; restaurar o padrão apaga o override.</p>
+        <div class="field-row wa-prompt-toolbar">
+          <select id="wa-prompt-agent"></select>
+          <button type="button" class="wa-btn" id="wa-prompt-reset">Restaurar padrão</button>
+          <button type="button" class="wa-btn primary" id="wa-prompt-save">Salvar prompt</button>
+        </div>
+        <textarea id="wa-prompt-text" class="wa-textarea wa-prompt-editor" rows="16" spellcheck="false"></textarea>
+        <div class="admin-error" id="wa-prompt-error" style="display:none"></div>
+        <div class="admin-toast" id="wa-prompt-toast" style="display:none"></div>
+      </div>
     </div>
   </div>
 

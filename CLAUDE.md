@@ -1,22 +1,50 @@
-# Secretaria Visual — Central de Agentes IA
+# Secretaria Visual — Central de Agentes IA (amostragem_modelos)
 
 ## O que é este projeto
 
-Interface web single-page para um sistema de orquestração de agentes IA via n8n.
+Demo comercial da Growth Hub: um site onde clientes testam 6 agentes de IA de
+atendimento (petshop, restaurante, imobiliária, loja de iPhones, odonto, hotel),
+com login temporário controlado por admin, e uma **integração WhatsApp** onde os
+mesmos agentes atendem de verdade via uazapi.
 
-O usuário tem um **fluxo orquestrador no n8n** que gerencia múltiplos sub-fluxos (agentes IA especializados). A interface permite que usuários escolham qual agente ativar e conversem com ele. Quando a sessão termina, volta para o orquestrador.
+Roda 100% em **Cloudflare Worker** (plano free) + **Supabase** (auth e config).
+Não há n8n nem servidor Node em produção — `server.js`, `index.html` (raiz) e o
+`package.json` com express são **legado** da versão antiga e não são usados.
 
-## Arquivo principal
+## Stack e arquitetura
 
+- **Cloudflare Worker** (`src/worker.js`) — serve os assets estáticos de `public/`
+  (SPA fallback ativo) e as rotas `/api/*`.
+- **Chat web** (`src/chat.js`) — 6 agentes com prompts no código, modelo
+  `openai/gpt-4.1-mini` via OpenRouter, catálogos de imóveis/iPhones com fotos
+  (proxy do Google Drive em `/api/imoveis/img/:driveId`).
+- **WhatsApp** (`src/whatsapp.js`) — webhook uazapi → Durable Object `ChatBuffer`
+  (1 por contato, buffer/debounce via alarm) → OpenRouter (modelo único
+  configurável, default `google/gemini-3.5-flash`, SEM fallback) → uazapi
+  send/text|media. Secretária roteia os 6 agentes por tag `[[ROTEAR:id]]` ou
+  número 1–6. Config e prompts editáveis em `/admin` (seção WhatsApp), gravados
+  no Supabase.
+- **Supabase** — login temporário (RPCs `fn_*`), config WhatsApp (RPCs `fn_wa_*`,
+  token uazapi mascarado no browser), cap diário de respostas.
+- **Front** (`public/`) — HTML + CSS + vanilla JS, sem build. Dark mode fixo.
+
+Documentação detalhada: `docs/decisao-de-stack.md` (por quê de cada escolha) e
+`docs/dev-handoff.md` (checklist de deploy/operação).
+
+## Comandos
+
+```bash
+npx wrangler dev          # dev local (copie .dev.vars.example → .dev.vars antes)
+npx wrangler deploy       # deploy
+npx wrangler secret put X # secrets: OPENAI_API_KEY, OPENROUTER_API_KEY,
+                          #          SUPABASE_SERVICE_ROLE_KEY, WA_WEBHOOK_SECRET
+node --check src/*.js     # sanity de sintaxe
 ```
-d:\Projetos-vibeocding\secretaria-visual\
-├── index.html                      ← App completo (HTML + CSS + JS inline)
-├── gh-tipografico.svg               ← Wordmark da empresa (tipografia roxa)
-├── gh-simbolo.svg                   ← Ícone/símbolo da marca GH
-└── CLAUDE.md                       ← Este arquivo
-```
 
-## Identidade visual (Brand tokens)
+Migrações SQL: rodar `supabase/schema.sql` (uma vez, já rodado) e
+`supabase/migration_whatsapp.sql` (uma vez) no SQL Editor do Supabase.
+
+## Identidade visual (brand tokens)
 
 | Token | Valor |
 |---|---|
@@ -26,64 +54,26 @@ d:\Projetos-vibeocding\secretaria-visual\
 | Background raised | `#1c1c1c` |
 | Texto primário | `#ededed` |
 | Texto muted | `#7a7a7a` |
-| Gradiente | `#694de2` → `#161616` |
-
-Os dois SVGs estão na pasta e são referenciados por caminho relativo no `index.html`.
-
-## Arquitetura da interface
-
-- **Stack**: HTML + CSS puro + Vanilla JS (sem build, sem dependências, arquivo único)
-- **Fonte**: Inter + Space Grotesk (Google Fonts via CDN)
-- **Modo**: sempre dark mode, sem toggle
-
-### Estrutura de layout
-
-```
-┌─ SIDEBAR (290px) ─┬─ MAIN PANEL ──────────────────────┐
-│ Logo (SVGs)        │ Topbar (breadcrumb + chip ativo)   │
-│ Orquestrador pill  ├───────────────────────────────────┤
-│ Lista de agentes   │ VIEW: Orquestrador                 │
-│                    │   Welcome title                    │
-│                    │   Prévia de conversa               │
-│                    │   Grid 2x2 de agentes              │
-│                    │                                    │
-│                    │ VIEW: Chat (agente ativo)          │
-│                    │   Banner do agente                 │
-│                    │   Área de mensagens                │
-│                    │   Input + botão enviar             │
-│ Footer (status)    │                                    │
-└────────────────────┴────────────────────────────────────┘
-```
-
-### Estados da aplicação
-
-1. **Orquestrador ativo** — Grid mostra agentes disponíveis para seleção
-2. **Agente ativo** — Chat com o agente, breadcrumb mostra `Central › NomeAgente`
-3. **Encerrar sessão** — Volta para estado 1
-
-## Agentes configurados (array `AGENTS` no JS)
-
-| ID | Nome | Webhook |
-|---|---|---|
-| `petshop` | Petshop | `https://webhook.iacompanyhorizon.com.br/webhook/petshope` |
-| `delivery` | Delivery | `https://webhook.iacompanyhorizon.com.br/webhook/delivery` |
-| `imobiliaria` | Imobiliária | `https://webhook.iacompanyhorizon.com.br/webhook/imobiliariaamostragem` |
-| `conc` | Concierge | `https://webhook.iacompanyhorizon.com.br/webhook/conc` |
-
-## Integração n8n
-
-A função `callWebhook(url, message)` faz `POST` com:
-```json
-{ "message": "...", "agent": "petshop", "timestamp": "ISO string" }
-```
-
-Resposta aceita nos formatos: `output`, `response`, `message`, `text`, `content` (ou array com qualquer um desses).
 
 ## Regras para modificações
 
-- Manter tudo em arquivo único `index.html` — sem frameworks, sem build
-- Não adicionar emojis como ícones — usar SVG inline (Lucide/Heroicons style)
-- Sempre usar as brand colors acima — não inventar novas cores
-- Os SVGs da logo são referenciados por `<img src="...svg">` relativo, não inline
-- Para adicionar agente: adicionar objeto no array `AGENTS` com `id`, `name`, `tag`, `desc`, `webhook`, `icon`
-- Para remover agente: remover do array `AGENTS`
+- **Nunca** commitar secrets — eles vivem em `.dev.vars` (local) e `wrangler secret`
+  (produção). O token da uazapi só existe no Supabase e no Worker, nunca no front.
+- Chat web e canal WhatsApp são caminhos separados de propósito: mudanças no
+  WhatsApp (modelo, prompts, sufixo de formato) NÃO podem afetar o chat do site.
+- O alarm do `ChatBuffer` precisa continuar idempotente e sem `throw` em erro de
+  LLM/envio (Cloudflare re-executa alarm que lança — vira loop de retry).
+- Sem frameworks/build no front; ícones em SVG inline (estilo Lucide), nunca emoji.
+- Para mexer nos agentes: metadados visuais em `AGENTS_META` (`public/app.js`),
+  prompts/modelo em `AGENTS` (`src/chat.js`), ordem do menu WhatsApp em
+  `AGENT_ORDER` (`src/whatsapp.js`).
+
+## Gotchas conhecidos
+
+- `supabase/schema.sql` contém a senha admin em texto plano e o front expõe a anon
+  key (por design do Supabase, mas a senha não deveria estar no git — trocar a
+  senha e limpar em algum momento).
+- O webhook da uazapi não é assinado; a segurança é o segredo na URL
+  (`WA_WEBHOOK_SECRET`). Se vazar, gere outro e clique "Registrar webhook" de novo.
+- Respostas do WhatsApp aplicam mudanças de config em até 1 min (cache de 60s no DO).
+- O cap diário (`whatsapp_usage`) vira à meia-noite **UTC**.

@@ -1,0 +1,17 @@
+# Secrets do Worker (Cloudflare) — copie para .dev.vars no dev local.
+# Em producao: npx wrangler secret put <NOME>
+# NUNCA commitar .dev.vars nem colocar esses valores em codigo/front-end.
+
+# Ja existentes (chat web)
+OPENAI_API_KEY=
+OPENROUTER_API_KEY=
+
+# Novos (integracao WhatsApp)
+# Service role key do Supabase — Settings > API > service_role.
+# Da acesso TOTAL ao banco; so vive no Worker.
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Segmento secreto da URL do webhook uazapi (a uazapi nao assina os webhooks).
+# Gere com: openssl rand -hex 16
+# O webhook fica em /api/whatsapp/webhook/<WA_WEBHOOK_SECRET>
+WA_WEBHOOK_SECRET=

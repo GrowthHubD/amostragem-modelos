@@ -2,6 +2,9 @@
 //  Cloudflare Worker — entry point
 // ══════════════════════════════════════════════════
 import { processChatMessage } from './chat.js';
+import { ChatBuffer, handleWebhook, handleAdmin } from './whatsapp.js';
+
+export { ChatBuffer };
 
 export default {
   async fetch(request, env, ctx) {
@@ -11,6 +14,18 @@ export default {
     const chatMatch = url.pathname.match(/^\/api\/chat\/([a-z0-9_-]+)$/i);
     if (chatMatch && request.method === 'POST') {
       return handleChat(request, chatMatch[1], env);
+    }
+
+    // POST /api/whatsapp/webhook/:secret — eventos da uazapi
+    const hookMatch = url.pathname.match(/^\/api\/whatsapp\/webhook\/([A-Za-z0-9_-]+)$/);
+    if (hookMatch && request.method === 'POST') {
+      return handleWebhook(request, env, hookMatch[1]);
+    }
+
+    // POST /api/whatsapp/admin/:action — proxy uazapi/OpenRouter (sessão admin)
+    const adminMatch = url.pathname.match(/^\/api\/whatsapp\/admin\/([a-z-]+)$/);
+    if (adminMatch && request.method === 'POST') {
+      return handleAdmin(request, env, adminMatch[1]);
     }
 
     // GET /api/imoveis/img/:driveId — proxy do Google Drive (evita CORS)
