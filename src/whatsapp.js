@@ -451,6 +451,128 @@ export class ChatBuffer {
 }
 
 // ──────────────────────────────────────────────────
+// Durable Object — WaPoller (contorno do bug de webhook da uazapi)
+//
+// Em 2026-07-12 o servidor uazapi parou de despachar webhooks: o evento
+// chega em tempo real via GET /sse, mas nenhum POST é feito à nossa URL
+// (GET /webhook/errors sempre vazio — bug reportado ao suporte).
+// Este DO puxa mensagens novas por polling (/chat/find + /message/find) e
+// injeta no MESMO caminho do webhook (ChatBuffer). O dedupe por messageid
+// do ChatBuffer garante zero duplicata se o webhook deles voltar — nesse
+// caso, desligar com a action admin "poller-stop".
+//
+// Custo (plano free): alarm a cada 15s ≈ 5,7k ticks/dia, bem abaixo das
+// cotas de requests e duração de DO. SSE 24/7 estouraria a duração em ~1 dia.
+// ──────────────────────────────────────────────────
+
+const POLL_MS = 15_000;        // integração ativa
+const POLL_IDLE_MS = 300_000;  // integração desativada: só espia a cada 5 min
+const POLL_OVERLAP_MS = 60_000; // janela de releitura (dups morrem no dedupe)
+
+export class WaPoller {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env;
+    this.cfgCache = null;
+    this.cfgCacheAt = 0;
+  }
+
+  async getConfig() {
+    const now = Date.now();
+    if (this.cfgCache && now - this.cfgCacheAt < 60_000) return this.cfgCache;
+    this.cfgCache = await sbGetWhatsAppConfig(this.env);
+    this.cfgCacheAt = now;
+    return this.cfgCache;
+  }
+
+  async fetch(request) {
+    const path = new URL(request.url).pathname;
+    const storage = this.ctx.storage;
+
+    if (path === '/start') {
+      await storage.put('stopped', false);
+      await storage.put('cursor', Date.now());
+      await storage.setAlarm(Date.now() + 1000);
+      return jsonResp({ ok: true, polling: true });
+    }
+    if (path === '/stop') {
+      await storage.put('stopped', true);
+      await storage.deleteAlarm();
+      return jsonResp({ ok: true, polling: false });
+    }
+    if (path === '/ensure') {
+      // Watchdog (cron 1/min): rearma se o alarm se perdeu (deploy, crash).
+      // "stopped" nunca setado = primeiro deploy → liga sozinho.
+      const stopped = await storage.get('stopped');
+      if (!stopped && (await storage.getAlarm()) === null) {
+        await storage.setAlarm(Date.now() + 1000);
+      }
+      return jsonResp({ ok: true, stopped: !!stopped });
+    }
+    // default: /status
+    return jsonResp({
+      polling: !(await storage.get('stopped')) && (await storage.getAlarm()) !== null,
+      cursor: (await storage.get('cursor')) || null,
+      lastTickAt: (await storage.get('lastTickAt')) || null,
+      lastError: (await storage.get('lastError')) || null,
+    });
+  }
+
+  async alarm() {
+    const storage = this.ctx.storage;
+    if (await storage.get('stopped')) return;
+
+    let delay = POLL_MS;
+    try {
+      const cfg = await this.getConfig();
+      if (!cfg.enabled || !cfg.uazapi_url || !cfg.uazapi_token) {
+        delay = POLL_IDLE_MS;
+      } else {
+        await this.tick(cfg, storage);
+      }
+      await storage.put('lastError', null);
+    } catch (err) {
+      // Nunca relança: alarm que lança re-executa (mesma regra do ChatBuffer)
+      console.error('[wa poller]', err.message);
+      await storage.put('lastError', `${new Date().toISOString()} ${err.message}`.slice(0, 300));
+      delay = 60_000;
+    }
+    await storage.put('lastTickAt', Date.now());
+    await storage.setAlarm(Date.now() + delay);
+  }
+
+  async tick(cfg, storage) {
+    const cursor = (await storage.get('cursor')) || Date.now();
+    const since = cursor - POLL_OVERLAP_MS;
+
+    const found = await uaz(cfg, 'POST', '/chat/find', { limit: 15, sort: '-wa_lastMsgTimestamp' });
+    const chats = (found?.chats || [])
+      .filter(c => !c.wa_isGroup && (c.wa_lastMsgTimestamp || 0) > since)
+      .slice(0, 5);
+
+    let maxTs = cursor;
+    for (const chat of chats) {
+      const res = await uaz(cfg, 'POST', '/message/find', { chatid: chat.wa_chatid, limit: 10 });
+      const msgs = (res?.messages || [])
+        .filter(m => (m.messageTimestamp || 0) > since && !m.fromMe && !m.isGroup)
+        .sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0));
+      for (const msg of msgs) {
+        const chatid = msg.chatid || chat.wa_chatid;
+        const id = this.env.CHAT_BUFFER.idFromName(chatid);
+        // Mesmo contrato do handleWebhook; dedupe mora no ChatBuffer
+        await this.env.CHAT_BUFFER.get(id).fetch('https://do/message', {
+          method: 'POST',
+          body: JSON.stringify({ msg, origin: this.env.PUBLIC_ORIGIN || '' }),
+        });
+        if ((msg.messageTimestamp || 0) > maxTs) maxTs = msg.messageTimestamp;
+      }
+      if ((chat.wa_lastMsgTimestamp || 0) > maxTs) maxTs = chat.wa_lastMsgTimestamp;
+    }
+    await storage.put('cursor', maxTs);
+  }
+}
+
+// ──────────────────────────────────────────────────
 // Handlers usados pelo worker.js
 // ──────────────────────────────────────────────────
 
@@ -529,6 +651,15 @@ export async function handleAdmin(request, env, action) {
       case 'disconnect': {
         await uaz(cfg, 'POST', '/instance/disconnect', {});
         return jsonResp({ ok: true });
+      }
+      // Poller (contorno do bug de webhook da uazapi — ver classe WaPoller)
+      case 'poller-start':
+      case 'poller-stop':
+      case 'poller-status': {
+        const stub = env.WA_POLLER.get(env.WA_POLLER.idFromName('main'));
+        const sub = action === 'poller-start' ? '/start' : action === 'poller-stop' ? '/stop' : '/status';
+        const r = await stub.fetch(`https://do${sub}`, { method: 'POST' });
+        return new Response(await r.text(), { status: r.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
       }
       case 'setup-webhook': {
         if (!env.WA_WEBHOOK_SECRET) return jsonResp({ error: 'WA_WEBHOOK_SECRET não configurado no Worker' }, 500);

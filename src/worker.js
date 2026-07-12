@@ -2,11 +2,17 @@
 //  Cloudflare Worker — entry point
 // ══════════════════════════════════════════════════
 import { processChatMessage } from './chat.js';
-import { ChatBuffer, handleWebhook, handleAdmin } from './whatsapp.js';
+import { ChatBuffer, WaPoller, handleWebhook, handleAdmin } from './whatsapp.js';
 
-export { ChatBuffer };
+export { ChatBuffer, WaPoller };
 
 export default {
+  // Cron (1/min): watchdog do WaPoller — rearma o alarm se um deploy o derrubou
+  async scheduled(event, env, ctx) {
+    const stub = env.WA_POLLER.get(env.WA_POLLER.idFromName('main'));
+    ctx.waitUntil(stub.fetch('https://do/ensure', { method: 'POST' }));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 

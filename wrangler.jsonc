@@ -9,7 +9,14 @@
   },
   "vars": {
     // URL publica do projeto Supabase (a mesma do front-end; nao e segredo)
-    "SUPABASE_URL": "https://buiwcxygokdbmsdhquee.supabase.co"
+    "SUPABASE_URL": "https://buiwcxygokdbmsdhquee.supabase.co",
+    // Origin publico do Worker — usado pelo WaPoller para montar URLs das fotos
+    // dos catalogos (o alarm nao tem request, entao nao da pra derivar do origin)
+    "PUBLIC_ORIGIN": "https://amostragem-modelos.method-growth-hub.workers.dev"
+  },
+  "triggers": {
+    // Watchdog do WaPoller (ver src/whatsapp.js): rearma o alarm apos deploys
+    "crons": ["* * * * *"]
   },
   "assets": {
     "directory": "public",
@@ -23,6 +30,10 @@
       {
         "name": "CHAT_BUFFER",
         "class_name": "ChatBuffer"
+      },
+      {
+        "name": "WA_POLLER",
+        "class_name": "WaPoller"
       }
     ]
   },
@@ -31,6 +42,10 @@
       "tag": "v1-chat-buffer",
       // new_sqlite_classes (nao new_classes): DOs com SQLite rodam no plano free
       "new_sqlite_classes": ["ChatBuffer"]
+    },
+    {
+      "tag": "v2-wa-poller",
+      "new_sqlite_classes": ["WaPoller"]
     }
   ]
 }
